@@ -2,37 +2,104 @@
 /**
  * Archive Film Club - Enhanced Admin Panel
  * Manage site settings, featured sections, and content curation
+ *
+ * Now supports MySQL database authentication with JSON fallback
  */
-
-// Simple password protection (change this!)
-$ADMIN_PASSWORD = 'filmclub2024';
 
 session_start();
 
+// Track if database is available
+$useDatabase = false;
+$authService = null;
+$settingsService = null;
+$admin_user = null;
+
+// Try to load database services
+try {
+    if (file_exists(__DIR__ . '/services/AdminAuthService.php') &&
+        file_exists(__DIR__ . '/services/SettingsService.php') &&
+        file_exists(__DIR__ . '/.env')) {
+
+        require_once __DIR__ . '/services/AdminAuthService.php';
+        require_once __DIR__ . '/services/SettingsService.php';
+
+        $authService = new AdminAuthService();
+        $settingsService = new SettingsService();
+
+        // Check if database has admin users
+        if ($authService->hasAdminUsers()) {
+            $useDatabase = true;
+        }
+    }
+} catch (Exception $e) {
+    // Database not available - use fallback
+    error_log("Admin: Database not available, using JSON fallback: " . $e->getMessage());
+}
+
+// Fallback password for JSON mode (legacy support)
+$ADMIN_PASSWORD = 'filmclub2024';
+
 // Handle login
-if (isset($_POST['password'])) {
-    if ($_POST['password'] === $ADMIN_PASSWORD) {
-        $_SESSION['admin_logged_in'] = true;
+$login_error = '';
+if (isset($_POST['password']) || (isset($_POST['username']) && isset($_POST['password']))) {
+    if ($useDatabase && $authService) {
+        // Database authentication
+        $username = trim($_POST['username'] ?? 'admin');
+        $password = $_POST['password'] ?? '';
+
+        $user = $authService->authenticate($username, $password);
+        if ($user) {
+            $authService->startSession($user);
+            $admin_user = $user;
+        } else {
+            $login_error = 'Invalid username or password';
+        }
     } else {
-        $login_error = 'Invalid password';
+        // Legacy JSON/password authentication
+        if ($_POST['password'] === $ADMIN_PASSWORD) {
+            $_SESSION['admin_logged_in'] = true;
+        } else {
+            $login_error = 'Invalid password';
+        }
     }
 }
 
 // Handle logout
 if (isset($_GET['logout'])) {
-    session_destroy();
+    if ($useDatabase && $authService) {
+        $authService->endSession();
+    } else {
+        session_destroy();
+    }
     header('Location: admin.php');
     exit;
 }
 
 // Check if logged in
-$is_logged_in = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
+if ($useDatabase && $authService) {
+    $admin_user = $authService->validateSession();
+    $is_logged_in = $admin_user !== null;
+} else {
+    $is_logged_in = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
+}
 
 // Load current recommendations
 $recommendations_file = __DIR__ . '/recommendations.json';
 $current_recommendations = [];
 $recommendations_data = ['enabled' => true, 'title' => 'Staff Picks', 'videos' => []];
-if (file_exists($recommendations_file)) {
+
+if ($useDatabase && $settingsService && $is_logged_in) {
+    // Load from database
+    try {
+        $recommendations_data = $settingsService->getRecommendations();
+        $current_recommendations = $recommendations_data['videos'] ?? [];
+    } catch (Exception $e) {
+        error_log("Failed to load recommendations from DB: " . $e->getMessage());
+    }
+}
+
+// Fallback to JSON
+if (empty($current_recommendations) && file_exists($recommendations_file)) {
     $content = file_get_contents($recommendations_file);
     $data = json_decode($content, true);
     if ($data) {
@@ -57,11 +124,25 @@ $site_settings = [
     'showDownloadCount' => true,
     'showCreator' => true,
     'showDate' => true,
-    'enableBookmarks' => false,
+    'enableBookmarks' => true,
     'enableWatchHistory' => true,
     'defaultCollection' => 'all_videos',
     'defaultSort' => 'downloads'
 ];
+
+if ($useDatabase && $settingsService && $is_logged_in) {
+    // Load from database
+    try {
+        $dbSettings = $settingsService->getSettings();
+        if (!empty($dbSettings)) {
+            $site_settings = array_merge($site_settings, $dbSettings);
+        }
+    } catch (Exception $e) {
+        error_log("Failed to load settings from DB: " . $e->getMessage());
+    }
+}
+
+// Fallback to JSON
 if (file_exists($settings_file)) {
     $content = file_get_contents($settings_file);
     $data = json_decode($content, true);
@@ -73,7 +154,19 @@ if (file_exists($settings_file)) {
 // Load featured sections
 $sections_file = __DIR__ . '/featured-sections.json';
 $featured_sections = [];
-if (file_exists($sections_file)) {
+
+if ($useDatabase && $settingsService && $is_logged_in) {
+    // Load from database
+    try {
+        $sectionsData = $settingsService->getFeaturedSections();
+        $featured_sections = $sectionsData['sections'] ?? [];
+    } catch (Exception $e) {
+        error_log("Failed to load sections from DB: " . $e->getMessage());
+    }
+}
+
+// Fallback to JSON
+if (empty($featured_sections) && file_exists($sections_file)) {
     $content = file_get_contents($sections_file);
     $data = json_decode($content, true);
     if ($data && isset($data['sections'])) {
@@ -1150,16 +1243,32 @@ if (file_exists($sections_file)) {
                 <h1 class="login-title">Admin Panel</h1>
                 <p class="login-subtitle">Archive Film Club</p>
             </div>
-            <?php if (isset($login_error)): ?>
+            <?php if (!empty($login_error)): ?>
             <div class="login-error">
                 <span>⚠️</span> <?= htmlspecialchars($login_error) ?>
             </div>
             <?php endif; ?>
             <form method="POST">
+                <?php if ($useDatabase): ?>
+                <!-- Database authentication: username + password -->
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" name="username" class="form-input" placeholder="Enter username" required autofocus autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" name="password" class="form-input" placeholder="Enter password" required autocomplete="current-password">
+                </div>
+                <?php else: ?>
+                <!-- Legacy password-only authentication -->
                 <div class="form-group">
                     <label class="form-label">Password</label>
                     <input type="password" name="password" class="form-input" placeholder="Enter admin password" required autofocus>
                 </div>
+                <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 16px;">
+                    <a href="install.php" style="color: var(--accent);">Run installer</a> to set up MySQL authentication
+                </p>
+                <?php endif; ?>
                 <button type="submit" class="btn btn-primary btn-full btn-lg">Login</button>
             </form>
         </div>

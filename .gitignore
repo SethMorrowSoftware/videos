@@ -1,0 +1,32 @@
+# Environment and configuration
+.env
+*.local
+
+# Installation lock file
+.installed
+
+# Cached thumbnails
+thumbnails/*.jpg
+thumbnails/*.jpeg
+thumbnails/*.png
+thumbnails/*.gif
+thumbnails/*.webp
+
+# Logs
+logs/
+*.log
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

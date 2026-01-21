@@ -1,14 +1,47 @@
 <?php
 /**
  * Save Site Settings Endpoint
- * Saves admin-configured site settings to site-settings.json
+ * Saves admin-configured site settings to database or site-settings.json
  */
 
 // Start session to check admin status
 session_start();
 
+// Check for database authentication first
+$useDatabase = false;
+$authService = null;
+$settingsService = null;
+
+try {
+    if (file_exists(__DIR__ . '/services/AdminAuthService.php') &&
+        file_exists(__DIR__ . '/services/SettingsService.php') &&
+        file_exists(__DIR__ . '/.env')) {
+
+        require_once __DIR__ . '/services/AdminAuthService.php';
+        require_once __DIR__ . '/services/SettingsService.php';
+
+        $authService = new AdminAuthService();
+        $settingsService = new SettingsService();
+
+        if ($authService->hasAdminUsers()) {
+            $useDatabase = true;
+        }
+    }
+} catch (Exception $e) {
+    // Database not available
+}
+
 // Verify admin is logged in
-if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+$isAuthorized = false;
+
+if ($useDatabase && $authService) {
+    $admin = $authService->validateSession();
+    $isAuthorized = $admin !== null;
+} else {
+    $isAuthorized = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
+}
+
+if (!$isAuthorized) {
     http_response_code(403);
     echo json_encode(['success' => false, 'error' => 'Not authorized']);
     exit;
@@ -87,7 +120,17 @@ foreach ($allowedSettings as $key => $config) {
 // Add timestamp
 $settings['updated'] = date('c');
 
-// Save to file
+// Save to database if available
+$dbSaveSuccess = false;
+if ($useDatabase && $settingsService) {
+    try {
+        $dbSaveSuccess = $settingsService->updateSettings($settings);
+    } catch (Exception $e) {
+        error_log("Failed to save settings to database: " . $e->getMessage());
+    }
+}
+
+// Always save to JSON file as backup/fallback
 $filename = __DIR__ . '/site-settings.json';
 $json = json_encode($settings, JSON_PRETTY_PRINT);
 
@@ -98,9 +141,20 @@ if (file_put_contents($filename, $json) !== false) {
     echo json_encode([
         'success' => true,
         'message' => 'Settings saved successfully',
-        'data' => $settings
+        'data' => $settings,
+        'database' => $dbSaveSuccess
     ]);
 } else {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Failed to write file']);
+    // Even if file write fails, database save might have succeeded
+    if ($dbSaveSuccess) {
+        echo json_encode([
+            'success' => true,
+            'message' => 'Settings saved to database (file backup failed)',
+            'data' => $settings,
+            'database' => true
+        ]);
+    } else {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Failed to save settings']);
+    }
 }
