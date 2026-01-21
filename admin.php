@@ -1548,13 +1548,8 @@ if (file_exists($sections_file)) {
                             </button>
                         </div>
                         <div class="card-body">
-                            <div id="sectionsList">
-                                <div class="empty-state">
-                                    <div class="empty-state-icon">📂</div>
-                                    <div class="empty-state-title">No additional sections</div>
-                                    <p class="empty-state-text">Staff Picks is your default section. Add more to organize content.</p>
-                                </div>
-                            </div>
+                            <div id="sectionsList"></div>
+                            <div id="sectionsStatus"></div>
                         </div>
                     </div>
                 </div>
@@ -1571,10 +1566,13 @@ if (file_exists($sections_file)) {
         let currentPanel = 'staff-picks';
         let siteSettings = <?= json_encode($site_settings) ?>;
         let draggedItem = null;
+        let featuredSections = <?= json_encode($featured_sections) ?>;
+        let currentEditingSection = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             renderSelectedList();
+            renderFeaturedSections();
             setupNavigation();
             setupColorPickers();
             setupDragAndDrop();
@@ -1866,6 +1864,9 @@ if (file_exists($sections_file)) {
                 case 'display':
                     saveSiteSettings();
                     break;
+                case 'sections':
+                    saveFeaturedSections();
+                    break;
             }
         }
 
@@ -1959,8 +1960,489 @@ if (file_exists($sections_file)) {
             }
         }
 
+        // ===== FEATURED SECTIONS MANAGEMENT =====
+
+        function renderFeaturedSections() {
+            const container = document.getElementById('sectionsList');
+            if (!container) return;
+
+            if (!featuredSections || featuredSections.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <div class="empty-state-title">No featured sections yet</div>
+                        <p class="empty-state-text">Create sections to organize and showcase content on your homepage</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = featuredSections.map((section, index) => `
+                <div class="card" style="margin-bottom: 20px;" data-section-id="${section.id}">
+                    <div class="card-header">
+                        <div>
+                            <h3 class="card-title">${escapeHtml(section.title)}</h3>
+                            <p class="card-subtitle">${section.videos?.length || 0} videos · ${section.enabled ? '✓ Enabled' : '✗ Disabled'}</p>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-sm" onclick="editSection('${section.id}')">
+                                ✏️ Edit
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteSection('${section.id}')">
+                                🗑️ Delete
+                            </button>
+                        </div>
+                    </div>
+                    ${section.description ? `
+                        <div class="card-body">
+                            <p style="color: var(--text-secondary); font-size: 14px;">${escapeHtml(section.description)}</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
         function addNewSection() {
-            alert('Feature coming soon! You can add custom sections with different video collections.');
+            const newSection = {
+                id: 'section-' + Date.now(),
+                title: 'New Section',
+                description: '',
+                enabled: true,
+                videos: []
+            };
+
+            featuredSections.push(newSection);
+            renderFeaturedSections();
+            editSection(newSection.id);
+        }
+
+        function editSection(sectionId) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            currentEditingSection = sectionId;
+
+            const container = document.getElementById('sectionsList');
+            const sectionCard = container.querySelector(`[data-section-id="${sectionId}"]`);
+            if (!sectionCard) return;
+
+            sectionCard.innerHTML = `
+                <div class="card-header">
+                    <h3 class="card-title">Edit Section</h3>
+                    <button class="btn btn-ghost btn-sm" onclick="cancelEditSection()">Cancel</button>
+                </div>
+                <div class="card-body">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Section Title</label>
+                        <input type="text" class="form-input" id="editSectionTitle" value="${escapeHtml(section.title)}" placeholder="e.g., Classic Westerns">
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label class="form-label">Description (Optional)</label>
+                        <input type="text" class="form-input" id="editSectionDescription" value="${escapeHtml(section.description || '')}" placeholder="Brief description of this section">
+                    </div>
+
+                    <div class="toggle-wrapper" style="margin-bottom: 24px;">
+                        <div>
+                            <div class="toggle-label">Show on homepage</div>
+                            <div class="toggle-description">Display this section to visitors</div>
+                        </div>
+                        <label class="toggle">
+                            <input type="checkbox" id="editSectionEnabled" ${section.enabled ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div style="margin-bottom: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <label class="form-label" style="margin: 0;">Videos in this section</label>
+                            <button class="btn btn-primary btn-sm" onclick="openVideoSearchModal('${sectionId}')">
+                                ➕ Add Videos
+                            </button>
+                        </div>
+                        <div id="sectionVideosList" class="selected-list" style="max-height: 300px;">
+                            ${section.videos?.length > 0 ? section.videos.map(video => `
+                                <div class="selected-item" data-video-id="${video.id}" draggable="true">
+                                    <div class="selected-item-drag">⋮⋮</div>
+                                    <div class="selected-item-thumb">
+                                        <img src="https://archive.org/services/img/${video.id}" alt="${escapeHtml(video.title)}">
+                                    </div>
+                                    <div class="selected-item-info">
+                                        <div class="selected-item-title">${escapeHtml(video.title)}</div>
+                                        <div class="selected-item-id">${video.id}</div>
+                                    </div>
+                                    <button class="selected-item-remove" onclick="removeVideoFromSection('${sectionId}', '${video.id}')" title="Remove">
+                                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M4 4l8 8M12 4l-8 8"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            `).join('') : '<div class="empty-state"><div class="empty-state-icon">🎬</div><div class="empty-state-title">No videos yet</div><p class="empty-state-text">Add videos to this section</p></div>'}
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; margin-top: 20px;">
+                        <button class="btn btn-success" onclick="saveEditSection('${sectionId}')">
+                            💾 Save Section
+                        </button>
+                        <button class="btn btn-secondary" onclick="cancelEditSection()">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            setupSectionVideoDragAndDrop();
+        }
+
+        function setupSectionVideoDragAndDrop() {
+            const list = document.getElementById('sectionVideosList');
+            if (!list) return;
+
+            let draggedItem = null;
+
+            list.addEventListener('dragstart', (e) => {
+                if (e.target.classList.contains('selected-item')) {
+                    draggedItem = e.target;
+                    e.target.classList.add('dragging');
+                }
+            });
+
+            list.addEventListener('dragend', (e) => {
+                if (e.target.classList.contains('selected-item')) {
+                    e.target.classList.remove('dragging');
+                    draggedItem = null;
+                    updateSectionVideoOrder();
+                }
+            });
+
+            list.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                const afterElement = getDragAfterElement(list, e.clientY);
+                if (draggedItem) {
+                    if (afterElement == null) {
+                        list.appendChild(draggedItem);
+                    } else {
+                        list.insertBefore(draggedItem, afterElement);
+                    }
+                }
+            });
+        }
+
+        function updateSectionVideoOrder() {
+            if (!currentEditingSection) return;
+
+            const section = featuredSections.find(s => s.id === currentEditingSection);
+            if (!section) return;
+
+            const items = document.querySelectorAll('#sectionVideosList .selected-item');
+            const newOrder = [];
+
+            items.forEach(item => {
+                const videoId = item.dataset.videoId;
+                const video = section.videos.find(v => v.id === videoId);
+                if (video) newOrder.push(video);
+            });
+
+            section.videos = newOrder;
+        }
+
+        function saveEditSection(sectionId) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            const title = document.getElementById('editSectionTitle')?.value.trim();
+            const description = document.getElementById('editSectionDescription')?.value.trim();
+            const enabled = document.getElementById('editSectionEnabled')?.checked;
+
+            if (!title) {
+                alert('Section title is required');
+                return;
+            }
+
+            section.title = title;
+            section.description = description;
+            section.enabled = enabled;
+            section.updated = new Date().toISOString();
+
+            currentEditingSection = null;
+            renderFeaturedSections();
+        }
+
+        function cancelEditSection() {
+            currentEditingSection = null;
+            renderFeaturedSections();
+        }
+
+        function deleteSection(sectionId) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            if (!confirm(`Delete "${section.title}"? This cannot be undone.`)) {
+                return;
+            }
+
+            featuredSections = featuredSections.filter(s => s.id !== sectionId);
+            renderFeaturedSections();
+        }
+
+        function removeVideoFromSection(sectionId, videoId) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            section.videos = section.videos.filter(v => v.id !== videoId);
+
+            // Re-render the video list
+            const videosList = document.getElementById('sectionVideosList');
+            if (videosList) {
+                const video = section.videos;
+                if (section.videos.length === 0) {
+                    videosList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎬</div><div class="empty-state-title">No videos yet</div><p class="empty-state-text">Add videos to this section</p></div>';
+                } else {
+                    videosList.innerHTML = section.videos.map(video => `
+                        <div class="selected-item" data-video-id="${video.id}" draggable="true">
+                            <div class="selected-item-drag">⋮⋮</div>
+                            <div class="selected-item-thumb">
+                                <img src="https://archive.org/services/img/${video.id}" alt="${escapeHtml(video.title)}">
+                            </div>
+                            <div class="selected-item-info">
+                                <div class="selected-item-title">${escapeHtml(video.title)}</div>
+                                <div class="selected-item-id">${video.id}</div>
+                            </div>
+                            <button class="selected-item-remove" onclick="removeVideoFromSection('${sectionId}', '${video.id}')" title="Remove">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M4 4l8 8M12 4l-8 8"/>
+                                </svg>
+                            </button>
+                        </div>
+                    `).join('');
+                    setupSectionVideoDragAndDrop();
+                }
+            }
+        }
+
+        function openVideoSearchModal(sectionId) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            // Create modal overlay
+            const modal = document.createElement('div');
+            modal.id = 'videoSearchModal';
+            modal.style.cssText = `
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.8);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+                padding: 20px;
+            `;
+
+            modal.innerHTML = `
+                <div class="card" style="width: 100%; max-width: 900px; max-height: 90vh; overflow-y: auto;">
+                    <div class="card-header">
+                        <h3 class="card-title">Add Videos to ${escapeHtml(section.title)}</h3>
+                        <button class="btn btn-ghost btn-sm" onclick="closeVideoSearchModal()">✕ Close</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="search-box">
+                            <div class="search-input-wrapper">
+                                <svg class="search-icon" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="11" cy="11" r="8"/>
+                                    <path d="M21 21l-4.35-4.35"/>
+                                </svg>
+                                <input type="text" class="search-input" id="modalSearchInput" placeholder="Search movies, shows, documentaries...">
+                            </div>
+                            <button class="btn btn-primary" onclick="searchVideosForSection('${sectionId}')">
+                                Search
+                            </button>
+                        </div>
+                        <div id="modalSearchResults">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🔍</div>
+                                <div class="empty-state-title">Search for videos</div>
+                                <p class="empty-state-text">Click on videos to add them to this section</p>
+                            </div>
+                        </div>
+                        <div id="modalPagination" class="pagination" style="display: none;"></div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Enter key to search
+            document.getElementById('modalSearchInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') searchVideosForSection(sectionId);
+            });
+
+            // Close on backdrop click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeVideoSearchModal();
+            });
+        }
+
+        function closeVideoSearchModal() {
+            const modal = document.getElementById('videoSearchModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        async function searchVideosForSection(sectionId, page = 1) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            const query = document.getElementById('modalSearchInput').value.trim();
+            if (!query) return;
+
+            const resultsDiv = document.getElementById('modalSearchResults');
+            resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Searching Archive.org...</p></div>';
+
+            try {
+                const params = new URLSearchParams({
+                    q: `${query} AND mediatype:(movies OR video)`,
+                    output: 'json',
+                    rows: '24',
+                    page: String(page)
+                });
+
+                ['identifier', 'title', 'creator', 'year', 'downloads'].forEach(f => {
+                    params.append('fl[]', f);
+                });
+
+                params.append('sort[]', 'downloads desc');
+
+                const response = await fetch(`https://archive.org/advancedsearch.php?${params}`);
+                const data = await response.json();
+
+                if (data.response && data.response.docs) {
+                    renderModalResults(data.response.docs, sectionId);
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="empty-state"><div class="empty-state-icon">❌</div><div class="empty-state-title">Search failed</div><p class="empty-state-text">${error.message}</p></div>`;
+            }
+        }
+
+        function renderModalResults(docs, sectionId) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            const resultsDiv = document.getElementById('modalSearchResults');
+
+            if (!docs.length) {
+                resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎬</div><div class="empty-state-title">No videos found</div><p class="empty-state-text">Try a different search term</p></div>';
+                return;
+            }
+
+            resultsDiv.innerHTML = '<div class="results-grid">' + docs.map(doc => {
+                const id = doc.identifier;
+                const title = Array.isArray(doc.title) ? doc.title[0] : (doc.title || 'Untitled');
+                const creator = Array.isArray(doc.creator) ? doc.creator[0] : (doc.creator || 'Unknown');
+                const year = doc.year || '';
+                const isSelected = section.videos.some(v => v.id === id);
+                const thumb = `https://archive.org/services/img/${id}`;
+
+                return `
+                    <div class="video-card ${isSelected ? 'selected' : ''}" onclick="toggleVideoForSection('${sectionId}', '${id}', '${escapeHtml(title)}', '${escapeHtml(creator)}')">
+                        <div class="video-card-thumb">
+                            <img src="${thumb}" alt="${escapeHtml(title)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22><rect fill=%22%23242428%22 width=%2216%22 height=%229%22/><text x=%228%22 y=%225%22 fill=%22%2371717a%22 text-anchor=%22middle%22 font-size=%222%22>🎬</text></svg>'">
+                            ${isSelected ? '<div class="video-card-badge"><span>✓</span> Added</div>' : ''}
+                        </div>
+                        <div class="video-card-content">
+                            <div class="video-card-title">${escapeHtml(title)}</div>
+                            <div class="video-card-meta">${escapeHtml(creator)}${year ? ' · ' + year : ''}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('') + '</div>';
+        }
+
+        function toggleVideoForSection(sectionId, videoId, title, creator) {
+            const section = featuredSections.find(s => s.id === sectionId);
+            if (!section) return;
+
+            const index = section.videos.findIndex(v => v.id === videoId);
+
+            if (index > -1) {
+                section.videos.splice(index, 1);
+            } else {
+                section.videos.push({ id: videoId, title: title, creator: creator });
+            }
+
+            // Update the modal view
+            const cards = document.querySelectorAll('#modalSearchResults .video-card');
+            cards.forEach(card => {
+                const onclick = card.getAttribute('onclick');
+                if (onclick && onclick.includes(`'${videoId}'`)) {
+                    const isSelected = section.videos.some(v => v.id === videoId);
+                    card.classList.toggle('selected', isSelected);
+
+                    const badge = card.querySelector('.video-card-badge');
+                    if (isSelected && !badge) {
+                        card.querySelector('.video-card-thumb').insertAdjacentHTML('beforeend', '<div class="video-card-badge"><span>✓</span> Added</div>');
+                    } else if (!isSelected && badge) {
+                        badge.remove();
+                    }
+                }
+            });
+
+            // Update the section videos list in the background
+            const videosList = document.getElementById('sectionVideosList');
+            if (videosList && currentEditingSection === sectionId) {
+                if (section.videos.length === 0) {
+                    videosList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎬</div><div class="empty-state-title">No videos yet</div><p class="empty-state-text">Add videos to this section</p></div>';
+                } else {
+                    videosList.innerHTML = section.videos.map(video => `
+                        <div class="selected-item" data-video-id="${video.id}" draggable="true">
+                            <div class="selected-item-drag">⋮⋮</div>
+                            <div class="selected-item-thumb">
+                                <img src="https://archive.org/services/img/${video.id}" alt="${escapeHtml(video.title)}">
+                            </div>
+                            <div class="selected-item-info">
+                                <div class="selected-item-title">${escapeHtml(video.title)}</div>
+                                <div class="selected-item-id">${video.id}</div>
+                            </div>
+                            <button class="selected-item-remove" onclick="removeVideoFromSection('${sectionId}', '${video.id}')" title="Remove">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M4 4l8 8M12 4l-8 8"/>
+                                </svg>
+                            </button>
+                        </div>
+                    `).join('');
+                    setupSectionVideoDragAndDrop();
+                }
+            }
+        }
+
+        async function saveFeaturedSections() {
+            const statusDiv = document.getElementById('sectionsStatus');
+
+            statusDiv.innerHTML = '<div class="save-status" style="background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border-color);">💾 Saving...</div>';
+
+            try {
+                const response = await fetch('save-featured-sections.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sections: featuredSections })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    statusDiv.innerHTML = '<div class="save-status success">✓ Featured sections saved successfully!</div>';
+                    refreshPreview();
+                } else {
+                    statusDiv.innerHTML = `<div class="save-status error">✗ Error: ${result.error || 'Unknown error'}</div>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="save-status error">✗ Error: ${error.message}</div>`;
+            }
+
+            setTimeout(() => { statusDiv.innerHTML = ''; }, 3000);
         }
 
         // Escape HTML

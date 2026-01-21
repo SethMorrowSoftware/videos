@@ -32,6 +32,7 @@ import { OfflineHandler } from './src/js/services/OfflineHandler.js';
 // Import components
 import { SearchSuggestions } from './src/js/components/SearchSuggestions.js';
 import { RecommendedManager } from './src/js/components/RecommendedManager.js';
+import { FeaturedSectionsManager } from './src/js/components/FeaturedSectionsManager.js';
 import { Toast } from './src/js/components/Toast.js';
 import { LoadingSkeleton } from './src/js/components/LoadingSkeleton.js';
 
@@ -80,6 +81,17 @@ class ArchiveVideoSearch {
     }).catch(err => {
       console.error('Failed to init recommended:', err);
     });
+
+    // Initialize featured sections
+    this.featuredSectionsManager = new FeaturedSectionsManager(this);
+    this.featuredSectionsManager.init().then(() => {
+      console.log('Featured sections initialized');
+    }).catch(err => {
+      console.error('Failed to init featured sections:', err);
+    });
+
+    // Store in window for global access
+    window.featuredSectionsManager = this.featuredSectionsManager;
 
     this.handleUrlParameters();
 

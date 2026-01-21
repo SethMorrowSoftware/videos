@@ -1037,6 +1037,203 @@ body {
 }
 
 /* ==============================================
+   FEATURED SECTIONS
+   ============================================== */
+.featured-section {
+  margin-bottom: var(--space-8);
+  position: relative;
+}
+
+.featured-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.featured-section-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.featured-section-description {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin: var(--space-1) 0 0 0;
+}
+
+/* Scroll Container with Buttons */
+.featured-section-scroll-container {
+  position: relative;
+}
+
+.featured-section-scroll-container.has-scroll-buttons:hover .scroll-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.featured-section-grid {
+  display: flex;
+  gap: var(--space-4);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  padding: var(--space-2) 0;
+  margin: 0 calc(-1 * var(--space-2));
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  /* Show scrollbar on desktop for better UX */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-bg-elevated) transparent;
+}
+
+.featured-section-grid::-webkit-scrollbar {
+  height: 8px;
+}
+
+.featured-section-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.featured-section-grid::-webkit-scrollbar-thumb {
+  background: var(--color-bg-elevated);
+  border-radius: 4px;
+}
+
+.featured-section-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+/* Featured Cards */
+.featured-card {
+  flex: 0 0 200px;
+  scroll-snap-align: start;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.featured-card:hover {
+  transform: translateY(-4px);
+}
+
+.featured-card-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.featured-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--transition-slow);
+}
+
+.featured-card:hover .featured-card-thumb img {
+  transform: scale(1.05);
+}
+
+.featured-card:hover .featured-card-thumb {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.featured-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  border-radius: var(--radius-lg);
+}
+
+.featured-card:hover .featured-card-overlay {
+  opacity: 1;
+}
+
+.featured-card-overlay .play-btn {
+  width: 44px;
+  height: 44px;
+  background: var(--color-brand-primary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.5);
+  transition: transform var(--transition-base);
+}
+
+.featured-card:hover .featured-card-overlay .play-btn {
+  transform: scale(1.1);
+}
+
+.featured-card-content {
+  padding: var(--space-3) 0 0 0;
+}
+
+.featured-card-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  margin-bottom: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.featured-card-creator {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.featured-card .runtime-badge {
+  position: absolute;
+  bottom: var(--space-2);
+  right: var(--space-2);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.featured-card-note {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  margin-top: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+/* ==============================================
    Video Cards
    ============================================== */
 .results-grid {
