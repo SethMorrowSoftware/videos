@@ -45,10 +45,13 @@ class ArchiveVideoSearch {
     this.searchDebounceTimer = null;
     this.keyboardHandler = null;
 
-    // Feature flags
+    // Load site settings from admin panel
+    this.siteSettings = this.loadSiteSettings();
+
+    // Feature flags (now driven by admin settings)
     this.useInfiniteScroll = false;
     this.enableTheaterMode = true;
-    this.enableBookmarks = false;
+    this.enableBookmarks = this.siteSettings.enableBookmarks ?? false;
 
     // Initialize services
     this.videoService = new VideoService();
@@ -316,16 +319,41 @@ class ArchiveVideoSearch {
   }
 
   loadUserPreferences() {
-    if (!this.userPreferences) return;
-
     const collections = this.searchService.getCollections();
-    if (this.userPreferences.collection && collections[this.userPreferences.collection] && this.collection) {
+
+    // Use user preferences if available, otherwise fall back to admin settings
+    if (this.userPreferences?.collection && collections[this.userPreferences.collection] && this.collection) {
       this.collection.value = this.userPreferences.collection;
+    } else if (this.siteSettings.defaultCollection && this.collection) {
+      this.collection.value = this.siteSettings.defaultCollection;
     }
 
-    if (this.userPreferences.sortBy && this.sortBy) {
+    if (this.userPreferences?.sortBy && this.sortBy) {
       this.sortBy.value = this.userPreferences.sortBy;
+    } else if (this.siteSettings.defaultSort && this.sortBy) {
+      this.sortBy.value = this.siteSettings.defaultSort;
     }
+  }
+
+  loadSiteSettings() {
+    const configEl = document.getElementById('siteSettingsConfig');
+    if (configEl) {
+      try {
+        return JSON.parse(configEl.textContent);
+      } catch (e) {
+        console.warn('Failed to parse site settings config:', e);
+      }
+    }
+    // Return defaults if no config found
+    return {
+      siteName: 'Archive Film Club',
+      showDownloadCount: true,
+      showCreator: true,
+      showDate: true,
+      enableBookmarks: false,
+      enableWatchHistory: true,
+      cardStyle: 'modern'
+    };
   }
 
   // ========================================
@@ -392,8 +420,12 @@ class ArchiveVideoSearch {
 
   loadInitialSearch() {
     setTimeout(() => {
-      if (this.collection) this.collection.value = 'all_videos';
-      if (this.sortBy) this.sortBy.value = 'downloads';
+      // Use admin settings for defaults, falling back to hardcoded values
+      const defaultCollection = this.siteSettings.defaultCollection || 'all_videos';
+      const defaultSort = this.siteSettings.defaultSort || 'downloads';
+
+      if (this.collection) this.collection.value = defaultCollection;
+      if (this.sortBy) this.sortBy.value = defaultSort;
       this.performSearch();
     }, 500);
   }
@@ -603,6 +635,11 @@ class ArchiveVideoSearch {
     const mediatype = extractValue(item.mediatype) || 'movies';
     const isBookmarked = this.bookmarkManager.isBookmarked(item.identifier);
 
+    // Get display settings from admin config
+    const showCreator = this.siteSettings.showCreator !== false;
+    const showDate = this.siteSettings.showDate !== false;
+    const showDownloadCount = this.siteSettings.showDownloadCount !== false;
+
     const progress = this.progressTracker.getProgress(item.identifier);
     const progressBar = progress ? `
       <div class="progress-indicator" style="width: ${progress.percentage}%"></div>
@@ -616,6 +653,18 @@ class ArchiveVideoSearch {
     }
 
     const placeholderIcon = mediatype === 'collection' ? '&#128193;' : '&#127916;';
+
+    // Build meta items based on admin settings
+    let metaItems = [];
+    if (showCreator) {
+      metaItems.push(`<span class="result-creator"><span class="meta-icon">${ICONS.user}</span> ${escapeHtml(creator)}</span>`);
+    }
+    if (showDate && date) {
+      metaItems.push(`<span><span class="meta-icon">${ICONS.calendar}</span> ${date}</span>`);
+    }
+    if (showDownloadCount && downloads) {
+      metaItems.push(`<span><span class="meta-icon">${ICONS.download}</span> ${downloads}</span>`);
+    }
 
     return `
       <article class="result-card" data-identifier="${item.identifier}" data-mediatype="${mediatype}">
@@ -633,9 +682,7 @@ class ArchiveVideoSearch {
           <div class="result-header">
             <h3 class="result-title">${escapeHtml(title)}</h3>
             <div class="result-meta">
-              <span class="result-creator"><span class="meta-icon">${ICONS.user}</span> ${escapeHtml(creator)}</span>
-              ${date ? `<span><span class="meta-icon">${ICONS.calendar}</span> ${date}</span>` : ''}
-              ${downloads ? `<span><span class="meta-icon">${ICONS.download}</span> ${downloads}</span>` : ''}
+              ${metaItems.join('\n              ')}
             </div>
           </div>
           <div class="result-description"></div>
