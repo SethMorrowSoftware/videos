@@ -253,7 +253,7 @@ class UserService {
         }
 
         return $this->db->fetchAll(
-            "SELECT archive_id as id, current_time, duration, progress_percent, last_watched, watch_count
+            "SELECT archive_id as id, playback_position, duration, progress_percent, last_watched, watch_count
              FROM user_watch_history
              WHERE user_id = ?
              ORDER BY last_watched DESC
@@ -271,10 +271,10 @@ class UserService {
         $progressPercent = $duration > 0 ? ($currentTime / $duration) * 100 : 0;
 
         $this->db->query(
-            "INSERT INTO user_watch_history (user_id, archive_id, current_time, duration, progress_percent)
+            "INSERT INTO user_watch_history (user_id, archive_id, playback_position, duration, progress_percent)
              VALUES (?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
-                current_time = VALUES(current_time),
+                playback_position = VALUES(playback_position),
                 duration = VALUES(duration),
                 progress_percent = VALUES(progress_percent),
                 watch_count = watch_count + 1",
@@ -294,7 +294,7 @@ class UserService {
         }
 
         return $this->db->fetchOne(
-            "SELECT current_time, duration, progress_percent
+            "SELECT playback_position, duration, progress_percent
              FROM user_watch_history
              WHERE user_id = ? AND archive_id = ?",
             [$userId, $archiveId]

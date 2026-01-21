@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS user_watch_history (
     id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
     archive_id VARCHAR(255) NOT NULL,
-    current_time DECIMAL(10,2) DEFAULT 0,
+    playback_position DECIMAL(10,2) DEFAULT 0,
     duration DECIMAL(10,2) DEFAULT 0,
     progress_percent DECIMAL(5,2) DEFAULT 0,
     last_watched TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
