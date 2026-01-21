@@ -356,6 +356,9 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
         <div id="recommendedGrid" class="recommended-grid"></div>
       </section>
 
+      <!-- Featured Sections Container -->
+      <div id="featuredSectionsContainer"></div>
+
       <div id="playerContainer" class="player" aria-hidden="true">
         <div class="player-controls">
           <button id="playPauseBtn" class="play-pause-btn" aria-label="Play/Pause">
@@ -414,6 +417,21 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   }
   ?>
   <script id="recommendedConfig" type="application/json"><?= $recommendations_config ?></script>
+
+  <!-- Featured Sections Configuration -->
+  <!-- Loaded from featured-sections.json (managed via admin.php) -->
+  <?php
+  $featured_sections_file = __DIR__ . '/featured-sections.json';
+  $featured_sections_config = '{"sections":[]}';
+
+  if (file_exists($featured_sections_file)) {
+      $content = file_get_contents($featured_sections_file);
+      if ($content) {
+          $featured_sections_config = $content;
+      }
+  }
+  ?>
+  <script id="featuredSectionsConfig" type="application/json"><?= $featured_sections_config ?></script>
 
   <!-- Theme Toggle Script -->
   <script>
