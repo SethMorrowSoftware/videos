@@ -1,13 +1,13 @@
 /* Archive Film Club - Enhanced UI
-   Version: 3.0.0
-   Features: Modular architecture, loading skeletons, improved animations, enhanced cards
+   Version: 4.0.0
+   Features: Theme toggle, modular architecture, loading skeletons, improved animations, enhanced cards
 */
 
 /* ==============================================
    Design Tokens & Variables
    ============================================== */
 :root {
-  /* Modern Color Palette */
+  /* Modern Color Palette - Dark Theme (Default) */
   --color-bg-primary: #0f0f0f;
   --color-bg-secondary: #1a1a1a;
   --color-bg-tertiary: #272727;
@@ -21,12 +21,12 @@
   --color-text-tertiary: #717171;
   --color-text-muted: #606060;
 
-  --color-brand-primary: #ff0000;
-  --color-brand-secondary: #cc0000;
-  --color-brand-gradient: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+  --color-brand-primary: var(--brand-color, #ff0000);
+  --color-brand-secondary: var(--brand-color-dark, #cc0000);
+  --color-brand-gradient: linear-gradient(135deg, var(--brand-color, #ff0000) 0%, var(--brand-color-dark, #cc0000) 100%);
 
-  --color-accent: #065fd4;
-  --color-accent-hover: #0956c4;
+  --color-accent: var(--accent-color, #065fd4);
+  --color-accent-hover: var(--accent-color-dark, #0956c4);
   --color-accent-light: rgba(6, 95, 212, 0.1);
   --color-accent-glow: rgba(6, 95, 212, 0.3);
 
@@ -39,6 +39,12 @@
   --color-border: #303030;
   --color-border-hover: rgba(99, 102, 241, 0.3);
   --color-divider: #373737;
+
+  /* Default brand colors (can be overridden by admin settings) */
+  --brand-color: #ff0000;
+  --brand-color-dark: #cc0000;
+  --accent-color: #065fd4;
+  --accent-color-dark: #0956c4;
 
   /* Spacing Scale */
   --space-1: 0.25rem;
@@ -104,6 +110,203 @@
   /* Sizes */
   --header-height: 56px;
   --sidebar-width: 240px;
+}
+
+/* ==============================================
+   Light Theme
+   ============================================== */
+[data-theme="light"] {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f5f5f5;
+  --color-bg-tertiary: #e8e8e8;
+  --color-bg-elevated: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-overlay: rgba(255, 255, 255, 0.95);
+  --color-bg-hover: rgba(0, 0, 0, 0.04);
+
+  --color-text-primary: #0f0f0f;
+  --color-text-secondary: #606060;
+  --color-text-tertiary: #909090;
+  --color-text-muted: #aaaaaa;
+
+  --color-border: #e0e0e0;
+  --color-border-hover: rgba(99, 102, 241, 0.4);
+  --color-divider: #e0e0e0;
+
+  --color-accent-light: rgba(6, 95, 212, 0.08);
+  --color-accent-glow: rgba(6, 95, 212, 0.2);
+}
+
+[data-theme="light"] body {
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 50%, #f8f9fa 100%);
+}
+
+[data-theme="light"] .site-header {
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .sidebar {
+  background: rgba(255, 255, 255, 0.95);
+  border-right-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .header-search-input-wrapper {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .header-search-input-wrapper:focus-within {
+  background: #ffffff;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(6, 95, 212, 0.1);
+}
+
+[data-theme="light"] .search-submit-btn {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .search-submit-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .filter-select {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .filter-select:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .checkbox-input {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+[data-theme="light"] .result-thumbnail {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .result-card:hover .result-thumbnail {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .player {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 245, 245, 0.98) 100%);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .player-controls {
+  background: #f5f5f5;
+}
+
+[data-theme="light"] .pagination button {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .pagination button:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .toast {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .video-metadata {
+  background: #ffffff;
+}
+
+[data-theme="light"] .playlist-container {
+  background: #ffffff;
+}
+
+[data-theme="light"] .search-suggestions {
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .btn-archive,
+[data-theme="light"] .btn-share,
+[data-theme="light"] .btn-bookmark {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .btn-archive:hover,
+[data-theme="light"] .btn-share:hover,
+[data-theme="light"] .btn-bookmark:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .recommended-card-thumb {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .recommended-card:hover .recommended-card-thumb {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .scroll-btn {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .scroll-btn:hover {
+  background: #ffffff;
+}
+
+/* ==============================================
+   Theme Toggle Button
+   ============================================== */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: all var(--transition-base);
+}
+
+.theme-toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.3s ease;
+}
+
+.theme-toggle:hover svg {
+  transform: rotate(15deg);
+}
+
+.theme-toggle .sun-icon {
+  display: none;
+}
+
+.theme-toggle .moon-icon {
+  display: block;
+}
+
+[data-theme="light"] .theme-toggle .sun-icon {
+  display: block;
+}
+
+[data-theme="light"] .theme-toggle .moon-icon {
+  display: none;
 }
 
 /* ==============================================
