@@ -1,6 +1,7 @@
 /**
  * VideoService
  * Handles video playback, loading, metadata, and file selection
+ * Now uses local caching API with fallback to Archive.org
  */
 
 import { CONFIG } from '../config.js';
@@ -10,15 +11,48 @@ export class VideoService {
   constructor() {
     this.currentlyPlaying = null;
     this.videoControls = null;
+    this.useLocalApi = true; // Try local API first
   }
 
   /**
-   * Get video metadata from Archive.org
+   * Get video metadata from local caching API
    */
-  async getVideoMetadata(id) {
+  async getMetadataViaLocalApi(id) {
+    const resp = await fetch(`/api/metadata.php?id=${encodeURIComponent(id)}`);
+    if (!resp.ok) throw new Error(`Failed to fetch metadata: ${resp.statusText}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  /**
+   * Get video metadata directly from Archive.org (fallback)
+   */
+  async getMetadataDirectFromArchive(id) {
     const resp = await fetch(`https://archive.org/metadata/${id}`);
     if (!resp.ok) throw new Error(`Failed to fetch metadata: ${resp.statusText}`);
     return resp.json();
+  }
+
+  /**
+   * Get video metadata (with local cache fallback)
+   */
+  async getVideoMetadata(id) {
+    // Try local caching API first
+    if (this.useLocalApi) {
+      try {
+        return await this.getMetadataViaLocalApi(id);
+      } catch (error) {
+        console.warn('Local metadata API failed, falling back to Archive.org:', error.message);
+        // Disable local API for this session if it's not available
+        if (error.message.includes('404') || error.message.includes('Failed to fetch')) {
+          this.useLocalApi = false;
+        }
+      }
+    }
+
+    // Fallback to direct Archive.org API
+    return this.getMetadataDirectFromArchive(id);
   }
 
   /**

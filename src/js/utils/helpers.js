@@ -149,6 +149,38 @@ export function throttle(func, limit) {
   };
 }
 
+/**
+ * Get thumbnail URL for an archive.org item
+ * Uses local caching API when available, falls back to archive.org
+ */
+let useLocalThumbnails = true; // Track if local API is available
+
+export function getThumbnailUrl(identifier) {
+  if (!identifier) return '';
+
+  // Try local caching API first
+  if (useLocalThumbnails) {
+    return `/api/thumbnail.php?id=${encodeURIComponent(identifier)}`;
+  }
+
+  // Fallback to archive.org directly
+  return `https://archive.org/services/img/${identifier}`;
+}
+
+/**
+ * Disable local thumbnail API (called when local API fails)
+ */
+export function disableLocalThumbnails() {
+  useLocalThumbnails = false;
+}
+
+/**
+ * Check if local thumbnail API is enabled
+ */
+export function isLocalThumbnailsEnabled() {
+  return useLocalThumbnails;
+}
+
 export default {
   safeParseJSON,
   escapeHtml,
@@ -158,5 +190,8 @@ export default {
   formatTime,
   formatFileSize,
   debounce,
-  throttle
+  throttle,
+  getThumbnailUrl,
+  disableLocalThumbnails,
+  isLocalThumbnailsEnabled
 };

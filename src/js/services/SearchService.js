@@ -1,6 +1,7 @@
 /**
  * SearchService
  * Handles search queries, API calls, and result processing
+ * Now uses local caching API with fallback to Archive.org
  */
 
 import { CONFIG, COLLECTIONS } from '../config.js';
@@ -8,6 +9,7 @@ import { CONFIG, COLLECTIONS } from '../config.js';
 export class SearchService {
   constructor() {
     this.collections = COLLECTIONS;
+    this.useLocalApi = true; // Try local API first
   }
 
   /**
@@ -86,9 +88,48 @@ export class SearchService {
   }
 
   /**
-   * Execute search against Archive.org API
+   * Execute search using local caching API
    */
-  async searchArchive(options = {}) {
+  async searchViaLocalApi(options = {}) {
+    const {
+      query = '*',
+      page = 1,
+      collection = 'all_videos',
+      sortBy = 'relevance',
+      publicDomain = false,
+      collectionsOnly = false
+    } = options;
+
+    const searchQuery = this.buildSearchQuery({
+      query,
+      collection,
+      publicDomain,
+      collectionsOnly
+    });
+
+    const params = new URLSearchParams({
+      q: searchQuery,
+      page: String(page),
+      rows: String(CONFIG.ITEMS_PER_PAGE),
+      sort: sortBy
+    });
+
+    const response = await this.fetchWithRetry(`/api/search.php?${params}`);
+    const data = await response.json();
+
+    // Check if API returned an error
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    // Transform to match Archive.org format if needed
+    return data;
+  }
+
+  /**
+   * Execute search directly against Archive.org API (fallback)
+   */
+  async searchArchiveDirect(options = {}) {
     const {
       query = '*',
       page = 1,
@@ -130,6 +171,27 @@ export class SearchService {
     const response = await this.fetchWithRetry(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     return response.json();
+  }
+
+  /**
+   * Execute search against Archive.org API (with local cache fallback)
+   */
+  async searchArchive(options = {}) {
+    // Try local caching API first
+    if (this.useLocalApi) {
+      try {
+        return await this.searchViaLocalApi(options);
+      } catch (error) {
+        console.warn('Local API failed, falling back to Archive.org:', error.message);
+        // Disable local API for this session if it's not available
+        if (error.message.includes('404') || error.message.includes('Failed to fetch')) {
+          this.useLocalApi = false;
+        }
+      }
+    }
+
+    // Fallback to direct Archive.org API
+    return this.searchArchiveDirect(options);
   }
 
   /**
