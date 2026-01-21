@@ -1,0 +1,27 @@
+# Thumbnail Cache Directory
+# Serve images with long cache headers
+
+<IfModule mod_headers.c>
+    # Cache images for 7 days
+    Header set Cache-Control "public, max-age=604800, immutable"
+
+    # Add ETag support
+    FileETag MTime Size
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 7 days"
+    ExpiresByType image/png "access plus 7 days"
+    ExpiresByType image/gif "access plus 7 days"
+    ExpiresByType image/webp "access plus 7 days"
+</IfModule>
+
+# Disable directory listing
+Options -Indexes
+
+# Only allow image files
+<FilesMatch "\.(?!(jpg|jpeg|png|gif|webp)$)[^.]*$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

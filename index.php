@@ -2,10 +2,11 @@
 /**
  * Archive Film Club - PHP Backend for Social Media Meta Tags
  * Fetches video metadata and injects Open Graph tags for sharing
+ *
+ * Now supports MySQL database with JSON fallback
  */
 
-// Load site settings
-$settings_file = __DIR__ . '/site-settings.json';
+// Default settings
 $site_settings = [
     'siteName' => 'Archive Film Club',
     'tagline' => 'Discover classic films from Archive.org',
@@ -17,16 +18,40 @@ $site_settings = [
     'showDownloadCount' => true,
     'showCreator' => true,
     'showDate' => true,
-    'enableBookmarks' => false,
+    'enableBookmarks' => true,
     'enableWatchHistory' => true,
     'defaultCollection' => 'all_videos',
     'defaultSort' => 'downloads'
 ];
-if (file_exists($settings_file)) {
-    $content = file_get_contents($settings_file);
-    $data = json_decode($content, true);
-    if ($data) {
-        $site_settings = array_merge($site_settings, $data);
+
+// Track if database is available
+$useDatabase = false;
+
+// Try to load settings from database first
+try {
+    if (file_exists(__DIR__ . '/services/SettingsService.php')) {
+        require_once __DIR__ . '/services/SettingsService.php';
+        $settingsService = new SettingsService();
+        $dbSettings = $settingsService->getSettings();
+        if (!empty($dbSettings)) {
+            $site_settings = array_merge($site_settings, $dbSettings);
+            $useDatabase = true;
+        }
+    }
+} catch (Exception $e) {
+    // Database not configured or error - fall back to JSON
+    error_log("Database settings load failed, using JSON fallback: " . $e->getMessage());
+}
+
+// Fallback: Load from JSON file if database not available
+if (!$useDatabase) {
+    $settings_file = __DIR__ . '/site-settings.json';
+    if (file_exists($settings_file)) {
+        $content = file_get_contents($settings_file);
+        $data = json_decode($content, true);
+        if ($data) {
+            $site_settings = array_merge($site_settings, $data);
+        }
     }
 }
 
@@ -404,34 +429,62 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings) ?></script>
 
   <!-- Admin Recommended Videos Configuration -->
-  <!-- Loaded from recommendations.json (managed via admin.php) -->
   <?php
-  $recommendations_file = __DIR__ . '/recommendations.json';
-  $recommendations_config = '{"enabled":false,"title":"Staff Picks","videos":[]}';
+  $recommendations_config = ['enabled' => false, 'title' => 'Staff Picks', 'videos' => []];
 
-  if (file_exists($recommendations_file)) {
-      $content = file_get_contents($recommendations_file);
-      if ($content) {
-          $recommendations_config = $content;
+  // Try database first
+  if ($useDatabase && isset($settingsService)) {
+      try {
+          $recommendations_config = $settingsService->getRecommendations();
+      } catch (Exception $e) {
+          error_log("Failed to load recommendations from database: " . $e->getMessage());
+      }
+  }
+
+  // Fallback to JSON file
+  if (!$useDatabase || empty($recommendations_config['videos'])) {
+      $recommendations_file = __DIR__ . '/recommendations.json';
+      if (file_exists($recommendations_file)) {
+          $content = file_get_contents($recommendations_file);
+          if ($content) {
+              $jsonData = json_decode($content, true);
+              if ($jsonData) {
+                  $recommendations_config = $jsonData;
+              }
+          }
       }
   }
   ?>
-  <script id="recommendedConfig" type="application/json"><?= $recommendations_config ?></script>
+  <script id="recommendedConfig" type="application/json"><?= json_encode($recommendations_config) ?></script>
 
   <!-- Featured Sections Configuration -->
-  <!-- Loaded from featured-sections.json (managed via admin.php) -->
   <?php
-  $featured_sections_file = __DIR__ . '/featured-sections.json';
-  $featured_sections_config = '{"sections":[]}';
+  $featured_sections_config = ['sections' => []];
 
-  if (file_exists($featured_sections_file)) {
-      $content = file_get_contents($featured_sections_file);
-      if ($content) {
-          $featured_sections_config = $content;
+  // Try database first
+  if ($useDatabase && isset($settingsService)) {
+      try {
+          $featured_sections_config = $settingsService->getFeaturedSections();
+      } catch (Exception $e) {
+          error_log("Failed to load featured sections from database: " . $e->getMessage());
+      }
+  }
+
+  // Fallback to JSON file
+  if (!$useDatabase || empty($featured_sections_config['sections'])) {
+      $featured_sections_file = __DIR__ . '/featured-sections.json';
+      if (file_exists($featured_sections_file)) {
+          $content = file_get_contents($featured_sections_file);
+          if ($content) {
+              $jsonData = json_decode($content, true);
+              if ($jsonData) {
+                  $featured_sections_config = $jsonData;
+              }
+          }
       }
   }
   ?>
-  <script id="featuredSectionsConfig" type="application/json"><?= $featured_sections_config ?></script>
+  <script id="featuredSectionsConfig" type="application/json"><?= json_encode($featured_sections_config) ?></script>
 
   <!-- Theme Toggle Script -->
   <script>

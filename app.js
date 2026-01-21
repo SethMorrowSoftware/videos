@@ -15,7 +15,8 @@ import {
   sanitizeHtml,
   extractValue,
   formatRuntime,
-  formatTime
+  formatTime,
+  getThumbnailUrl
 } from './src/js/utils/helpers.js';
 import { UIFeedback } from './src/js/utils/uiFeedback.js';
 import { UrlManager } from './src/js/utils/urlManager.js';
@@ -640,7 +641,7 @@ class ArchiveVideoSearch {
     const downloads = Number(item.downloads || 0).toLocaleString();
     const runtime = formatRuntime(item.runtime);
     const href = `https://archive.org/details/${item.identifier}`;
-    const thumbUrl = `https://archive.org/services/img/${item.identifier}`;
+    const thumbUrl = getThumbnailUrl(item.identifier);
     const license = extractValue(item.licenseurl) || '';
     const subject = extractValue(item.subject) || '';
     const isPD = license.includes('publicdomain') || subject.toLowerCase().includes('public domain');

@@ -3,7 +3,7 @@
  * Manages multiple featured content sections on the homepage
  */
 
-import { escapeHtml, extractValue, formatRuntime } from '../utils/helpers.js';
+import { escapeHtml, extractValue, formatRuntime, getThumbnailUrl } from '../utils/helpers.js';
 import { ICONS } from '../utils/icons.js';
 
 export class FeaturedSectionsManager {
@@ -127,7 +127,7 @@ export class FeaturedSectionsManager {
   createCard(video) {
     const title = extractValue(video.title) || 'Untitled';
     const creator = extractValue(video.creator) || 'Unknown';
-    const thumbUrl = `https://archive.org/services/img/${video.identifier}`;
+    const thumbUrl = getThumbnailUrl(video.identifier);
     const runtime = formatRuntime(video.runtime);
 
     return `

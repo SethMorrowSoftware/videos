@@ -90,6 +90,9 @@ self.addEventListener('fetch', event => {
   // Handle different types of requests
   if (request.destination === 'image' || url.pathname.includes('/img/')) {
     event.respondWith(handleImageRequest(request));
+  } else if (url.origin === location.origin && url.pathname.startsWith('/api/')) {
+    // Handle local API requests with caching
+    event.respondWith(handleApiRequest(request));
   } else if (url.origin === location.origin) {
     event.respondWith(handleAppRequest(request));
   } else if (url.hostname === 'archive.org') {
@@ -98,6 +101,130 @@ self.addEventListener('fetch', event => {
     event.respondWith(handleDynamicRequest(request));
   }
 });
+
+/**
+ * Handle local API requests with intelligent caching
+ */
+async function handleApiRequest(request) {
+  const url = new URL(request.url);
+  const endpoint = url.pathname;
+
+  // Determine cache strategy based on endpoint
+  const cacheStrategies = {
+    '/api/search.php': { ttl: 5 * 60 * 1000, strategy: 'network-first' },      // 5 min
+    '/api/metadata.php': { ttl: 60 * 60 * 1000, strategy: 'cache-first' },     // 1 hour
+    '/api/thumbnail.php': { ttl: 7 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 7 days
+    '/api/settings.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 1 hour
+    '/api/recommendations.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    '/api/sections.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+  };
+
+  const config = cacheStrategies[endpoint] || { ttl: 5 * 60 * 1000, strategy: 'network-first' };
+
+  try {
+    switch (config.strategy) {
+      case 'cache-first':
+        return await handleCacheFirst(request, config.ttl);
+
+      case 'stale-while-revalidate':
+        return await handleStaleWhileRevalidate(request, config.ttl);
+
+      case 'network-first':
+      default:
+        return await handleNetworkFirst(request, config.ttl);
+    }
+  } catch (error) {
+    console.error('[SW] API request failed:', error);
+
+    // Try to return cached version
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+
+    return new Response(JSON.stringify({ error: 'Network error', offline: true }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * Cache-first strategy: Use cache if available, otherwise fetch
+ */
+async function handleCacheFirst(request, ttl) {
+  const cachedResponse = await caches.match(request);
+
+  if (cachedResponse) {
+    const cacheAge = await getCacheAge(cachedResponse);
+    if (cacheAge < ttl) {
+      return cachedResponse;
+    }
+  }
+
+  const networkResponse = await fetchWithTimeout(request, 10000);
+
+  if (networkResponse.ok) {
+    const cache = await caches.open(DYNAMIC_CACHE);
+    cache.put(request, networkResponse.clone());
+  }
+
+  return networkResponse;
+}
+
+/**
+ * Network-first strategy: Try network, fall back to cache
+ */
+async function handleNetworkFirst(request, ttl) {
+  try {
+    const networkResponse = await fetchWithTimeout(request, 10000);
+
+    if (networkResponse.ok) {
+      const cache = await caches.open(DYNAMIC_CACHE);
+      cache.put(request, networkResponse.clone());
+    }
+
+    return networkResponse;
+  } catch (error) {
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Stale-while-revalidate: Return cache immediately, update in background
+ */
+async function handleStaleWhileRevalidate(request, ttl) {
+  const cachedResponse = await caches.match(request);
+
+  // Fetch and update cache in background
+  const fetchPromise = fetchWithTimeout(request, 10000)
+    .then(networkResponse => {
+      if (networkResponse.ok) {
+        caches.open(DYNAMIC_CACHE).then(cache => {
+          cache.put(request, networkResponse.clone());
+        });
+      }
+      return networkResponse;
+    })
+    .catch(() => null);
+
+  // Return cached version immediately if available
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+
+  // No cache, wait for network
+  const networkResponse = await fetchPromise;
+  if (networkResponse) {
+    return networkResponse;
+  }
+
+  throw new Error('No cached or network response available');
+}
 
 /**
  * Handle app requests (HTML, CSS, JS)
