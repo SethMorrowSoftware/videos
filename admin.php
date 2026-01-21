@@ -2169,6 +2169,9 @@ if (file_exists($sections_file)) {
 
             currentEditingSection = null;
             renderFeaturedSections();
+
+            // Auto-save to server
+            saveFeaturedSections();
         }
 
         function cancelEditSection() {
@@ -2186,6 +2189,9 @@ if (file_exists($sections_file)) {
 
             featuredSections = featuredSections.filter(s => s.id !== sectionId);
             renderFeaturedSections();
+
+            // Auto-save to server
+            saveFeaturedSections();
         }
 
         function removeVideoFromSection(sectionId, videoId) {

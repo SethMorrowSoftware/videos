@@ -1,0 +1,29 @@
+{
+    "sections": [
+        {
+            "id": "section-test-classics",
+            "title": "Classic Films",
+            "description": "Timeless cinema from the golden age of Hollywood",
+            "enabled": true,
+            "videos": [
+                {
+                    "id": "night_of_the_living_dead",
+                    "title": "Night of the Living Dead",
+                    "creator": "George A. Romero"
+                },
+                {
+                    "id": "the_little_shop_of_horrors",
+                    "title": "The Little Shop of Horrors",
+                    "creator": "Roger Corman"
+                },
+                {
+                    "id": "Nosferatu",
+                    "title": "Nosferatu",
+                    "creator": "F.W. Murnau"
+                }
+            ],
+            "updated": "2026-01-21T00:00:00+00:00"
+        }
+    ],
+    "updated": "2026-01-21T00:00:00+00:00"
+}
