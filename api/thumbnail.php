@@ -116,23 +116,46 @@ try {
  */
 function downloadAndCacheThumbnail($archiveId, $db, $config) {
     $sourceUrl = "https://archive.org/services/img/{$archiveId}";
+    $imageData = null;
 
-    // Download the image
-    $context = stream_context_create([
-        'http' => [
-            'timeout' => 10,
-            'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
-            'ignore_errors' => true,
-        ],
-        'ssl' => [
-            'verify_peer' => true,
-            'verify_peer_name' => true,
-        ],
-    ]);
+    // Try cURL first (more reliable on shared hosting)
+    if (function_exists('curl_init')) {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $sourceUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $imageData = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
-    $imageData = @file_get_contents($sourceUrl, false, $context);
+        if ($imageData === false || $httpCode !== 200) {
+            $imageData = null;
+        }
+    }
 
-    if ($imageData === false || strlen($imageData) < 100) {
+    // Fallback to file_get_contents if cURL failed
+    if ($imageData === null && ini_get('allow_url_fopen')) {
+        $context = stream_context_create([
+            'http' => [
+                'timeout' => 10,
+                'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                'ignore_errors' => true,
+            ],
+            'ssl' => [
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+            ],
+        ]);
+
+        $imageData = @file_get_contents($sourceUrl, false, $context);
+    }
+
+    if ($imageData === null || $imageData === false || strlen($imageData) < 100) {
         return null;
     }
 

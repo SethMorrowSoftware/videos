@@ -153,7 +153,7 @@ export function throttle(func, limit) {
  * Get thumbnail URL for an archive.org item
  * Uses local caching API when available, falls back to archive.org
  */
-let useLocalThumbnails = false; // Disabled by default - use archive.org directly for reliability
+let useLocalThumbnails = true; // Enabled by default - use local caching API for performance
 
 export function getThumbnailUrl(identifier) {
   if (!identifier) return '';
