@@ -58,6 +58,7 @@ class ArchiveOrgService {
     /**
      * Search the Archive.org collection
      * Enhanced to queue caching of search result items
+     * Resilient: falls back to direct API if caching fails
      */
     public function search(array $params): array {
         $startTime = microtime(true);
@@ -66,8 +67,14 @@ class ArchiveOrgService {
         // Normalize parameters
         $searchParams = $this->normalizeSearchParams($params);
 
-        // Check cache first
-        $cached = $this->searchCache->get($searchParams);
+        // Try cache first (gracefully handle if tables don't exist)
+        $cached = null;
+        try {
+            $cached = $this->searchCache->get($searchParams);
+        } catch (Exception $e) {
+            // Cache unavailable, will fetch from API
+            error_log("Search cache unavailable: " . $e->getMessage());
+        }
 
         if ($cached !== null) {
             $cacheHit = true;
@@ -82,12 +89,17 @@ class ArchiveOrgService {
             $apiResult = $this->fetchFromArchive($searchParams);
 
             if ($apiResult['success']) {
-                // Cache the results
-                $this->searchCache->set(
-                    $searchParams,
-                    $apiResult['data'],
-                    $apiResult['data']['response']['numFound'] ?? 0
-                );
+                // Try to cache the results (gracefully handle failure)
+                try {
+                    $this->searchCache->set(
+                        $searchParams,
+                        $apiResult['data'],
+                        $apiResult['data']['response']['numFound'] ?? 0
+                    );
+                } catch (Exception $e) {
+                    // Caching failed, but we still have results
+                    error_log("Failed to cache search results: " . $e->getMessage());
+                }
 
                 $result = [
                     'success' => true,
@@ -107,14 +119,22 @@ class ArchiveOrgService {
             }
         }
 
-        // Log API usage if enabled
+        // Log API usage if enabled (gracefully handle failure)
         if ($this->config['features']['api_logging'] ?? false) {
-            $this->logApiUsage('search', $cacheHit, microtime(true) - $startTime);
+            try {
+                $this->logApiUsage('search', $cacheHit, microtime(true) - $startTime);
+            } catch (Exception $e) {
+                // Logging failed, ignore
+            }
         }
 
-        // Track popular searches
+        // Track popular searches (gracefully handle failure)
         if (isset($params['q']) && !empty($params['q'])) {
-            $this->trackPopularSearch($params['q']);
+            try {
+                $this->trackPopularSearch($params['q']);
+            } catch (Exception $e) {
+                // Tracking failed, ignore
+            }
         }
 
         return $result;
@@ -149,14 +169,21 @@ class ArchiveOrgService {
     /**
      * Get video metadata
      * Enhanced to proactively cache thumbnails and store raw metadata
+     * Resilient: falls back to direct API if caching fails
      */
     public function getMetadata(string $archiveId): array {
         $startTime = microtime(true);
         $cacheHit = false;
         $isStale = false;
 
-        // Check cache first
-        $cached = $this->metadataCache->get($archiveId);
+        // Try cache first (gracefully handle if tables don't exist)
+        $cached = null;
+        try {
+            $cached = $this->metadataCache->get($archiveId);
+        } catch (Exception $e) {
+            // Cache unavailable, will fetch from API
+            error_log("Metadata cache unavailable: " . $e->getMessage());
+        }
 
         if ($cached !== null) {
             $cacheHit = true;
@@ -185,8 +212,12 @@ class ArchiveOrgService {
                     // Extract and normalize metadata
                     $metadata = $this->normalizeMetadata($archiveId, $rawData);
 
-                    // Cache it with raw data for permanent storage
-                    $this->metadataCache->set($archiveId, $metadata, $this->storeRawMetadata ? $rawData : null);
+                    // Try to cache it (gracefully handle failure)
+                    try {
+                        $this->metadataCache->set($archiveId, $metadata, $this->storeRawMetadata ? $rawData : null);
+                    } catch (Exception $e) {
+                        error_log("Failed to cache metadata: " . $e->getMessage());
+                    }
 
                     $result = [
                         'success' => true,
