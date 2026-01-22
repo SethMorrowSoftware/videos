@@ -90,24 +90,49 @@ class ThumbnailCache {
     }
 
     /**
-     * Download image from URL
+     * Download image from URL (tries cURL first, then file_get_contents)
      */
     private function downloadImage(string $url): ?string {
-        $context = stream_context_create([
-            'http' => [
-                'timeout' => 10,
-                'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
-                'ignore_errors' => true,
-            ],
-            'ssl' => [
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-            ],
-        ]);
+        $data = null;
 
-        $data = @file_get_contents($url, false, $context);
+        // Try cURL first (more reliable on shared hosting)
+        if (function_exists('curl_init')) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                CURLOPT_SSL_VERIFYPEER => true,
+            ]);
+            $data = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-        if ($data === false) {
+            if ($data === false || $httpCode !== 200) {
+                $data = null;
+            }
+        }
+
+        // Fallback to file_get_contents if cURL failed
+        if ($data === null && ini_get('allow_url_fopen')) {
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 15,
+                    'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                    'ignore_errors' => true,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                ],
+            ]);
+
+            $data = @file_get_contents($url, false, $context);
+        }
+
+        if ($data === null || $data === false || strlen($data) < 100) {
             return null;
         }
 

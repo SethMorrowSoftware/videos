@@ -424,35 +424,62 @@ class ArchiveOrgService {
     }
 
     /**
-     * Make HTTP GET request
+     * Make HTTP GET request (tries cURL first, then file_get_contents)
      */
     private function httpGet(string $url): array {
-        $context = stream_context_create([
-            'http' => [
-                'timeout' => self::API_TIMEOUT,
-                'user_agent' => self::USER_AGENT,
-                'ignore_errors' => true,
-            ],
-            'ssl' => [
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-            ],
-        ]);
+        $data = null;
+        $status = 0;
 
-        $data = @file_get_contents($url, false, $context);
+        // Try cURL first (more reliable on shared hosting)
+        if (function_exists('curl_init')) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT => self::API_TIMEOUT,
+                CURLOPT_USERAGENT => self::USER_AGENT,
+                CURLOPT_SSL_VERIFYPEER => true,
+            ]);
+            $data = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
 
-        if ($data === false) {
+            if ($data === false || !empty($curlError)) {
+                $data = null;
+            }
+        }
+
+        // Fallback to file_get_contents
+        if ($data === null && ini_get('allow_url_fopen')) {
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => self::API_TIMEOUT,
+                    'user_agent' => self::USER_AGENT,
+                    'ignore_errors' => true,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                ],
+            ]);
+
+            $data = @file_get_contents($url, false, $context);
+
+            // Check HTTP status
+            $status = 200;
+            if (isset($http_response_header[0])) {
+                preg_match('/HTTP\/[\d.]+\s+(\d+)/', $http_response_header[0], $matches);
+                $status = (int)($matches[1] ?? 200);
+            }
+        }
+
+        if ($data === null || $data === false) {
             return [
                 'success' => false,
                 'error' => 'Network request failed',
             ];
-        }
-
-        // Check HTTP status
-        $status = 200;
-        if (isset($http_response_header[0])) {
-            preg_match('/HTTP\/[\d.]+\s+(\d+)/', $http_response_header[0], $matches);
-            $status = (int)($matches[1] ?? 200);
         }
 
         if ($status >= 400) {

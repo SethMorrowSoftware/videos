@@ -114,7 +114,7 @@ export class SearchService {
       sort: sortBy
     });
 
-    const response = await this.fetchWithRetry(`/api/search.php?${params}`);
+    const response = await this.fetchWithRetry(`api/search.php?${params}`);
     const data = await response.json();
 
     // Check if API returned an error

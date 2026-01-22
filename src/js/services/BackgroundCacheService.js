@@ -13,7 +13,7 @@ export class BackgroundCacheService {
     this.batchDelay = 2000; // 2 seconds
     this.batchTimer = null;
     this.enabled = true;
-    this.apiEndpoint = '/api/cache.php';
+    this.apiEndpoint = 'api/cache.php';
   }
 
   /**
