@@ -29,6 +29,7 @@ import { PlaylistService } from './src/js/services/PlaylistService.js';
 import { VideoProgressTracker } from './src/js/services/VideoProgressTracker.js';
 import { BookmarkManager } from './src/js/services/BookmarkManager.js';
 import { OfflineHandler } from './src/js/services/OfflineHandler.js';
+import { BackgroundCacheService } from './src/js/services/BackgroundCacheService.js';
 
 // Import components
 import { SearchSuggestions } from './src/js/components/SearchSuggestions.js';
@@ -63,6 +64,7 @@ class ArchiveVideoSearch {
     this.searchCache = new SearchCache();
     this.bookmarkManager = new BookmarkManager();
     this.offlineHandler = new OfflineHandler();
+    this.backgroundCacheService = new BackgroundCacheService();
     this.toast = new Toast();
     this.loadingSkeleton = new LoadingSkeleton();
     this.uiFeedback = new UIFeedback();
@@ -537,6 +539,12 @@ class ArchiveVideoSearch {
     const resultsHtml = docs.map(d => this.createResultCard(d)).join('');
     this.results.innerHTML = resultsHtml;
     this.attachCardEventListeners();
+
+    // Queue displayed items for background caching (thumbnails and metadata)
+    // This helps build up local cache as users browse
+    if (this.backgroundCacheService) {
+      this.backgroundCacheService.queueSearchResults(docs);
+    }
   }
 
   attachCardEventListeners() {
@@ -724,6 +732,11 @@ class ArchiveVideoSearch {
 
     UrlManager.updateUrl({ video: id }, true);
     this.updatePageTitle(title);
+
+    // Proactively cache the video being played (high priority)
+    if (this.backgroundCacheService) {
+      this.backgroundCacheService.cacheItemImmediately(id);
+    }
 
     if (this.playerContainer) {
       this.playerContainer.classList.add('visible');

@@ -4,15 +4,18 @@
  *
  * Handles all communication with Archive.org API
  * with caching support for improved performance
+ * Enhanced to proactively cache thumbnails and store raw metadata
  */
 
 require_once __DIR__ . '/../cache/SearchCache.php';
 require_once __DIR__ . '/../cache/MetadataCache.php';
+require_once __DIR__ . '/../cache/ThumbnailCache.php';
 require_once __DIR__ . '/../db/Database.php';
 
 class ArchiveOrgService {
     private $searchCache;
     private $metadataCache;
+    private $thumbnailCache;
     private $db;
     private $config;
 
@@ -21,15 +24,40 @@ class ArchiveOrgService {
     const API_TIMEOUT = 15;
     const USER_AGENT = 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)';
 
+    // Proactive caching settings
+    private $proactiveThumbnailCaching = true;
+    private $storeRawMetadata = true;
+
     public function __construct() {
         $this->searchCache = new SearchCache();
         $this->metadataCache = new MetadataCache();
+        $this->thumbnailCache = new ThumbnailCache();
         $this->db = Database::getInstance();
         $this->config = $this->db->getConfig();
+
+        // Load caching settings
+        $this->loadCachingSettings();
+    }
+
+    /**
+     * Load caching settings from database
+     */
+    private function loadCachingSettings(): void {
+        try {
+            $setting = $this->db->fetchOne(
+                "SELECT setting_value FROM site_settings WHERE setting_key = 'cacheThumbnailsOnView'"
+            );
+            if ($setting) {
+                $this->proactiveThumbnailCaching = (bool)$setting['setting_value'];
+            }
+        } catch (Exception $e) {
+            // Use defaults if settings don't exist yet
+        }
     }
 
     /**
      * Search the Archive.org collection
+     * Enhanced to queue caching of search result items
      */
     public function search(array $params): array {
         $startTime = microtime(true);
@@ -66,6 +94,11 @@ class ArchiveOrgService {
                     'cached' => false,
                     'data' => $apiResult['data'],
                 ];
+
+                // Queue caching of search result items (thumbnails primarily)
+                if ($this->proactiveThumbnailCaching && isset($apiResult['data']['response']['docs'])) {
+                    $this->queueSearchResultsCaching($apiResult['data']['response']['docs']);
+                }
             } else {
                 $result = [
                     'success' => false,
@@ -88,42 +121,83 @@ class ArchiveOrgService {
     }
 
     /**
+     * Queue caching of search result items
+     * Only queues thumbnails for items not already cached
+     */
+    private function queueSearchResultsCaching(array $docs): void {
+        try {
+            // Limit to first 20 items to avoid overwhelming the queue
+            $docs = array_slice($docs, 0, 20);
+
+            foreach ($docs as $doc) {
+                $archiveId = $doc['identifier'] ?? null;
+                if (!$archiveId) continue;
+
+                // Queue thumbnail caching with lower priority (these are just search results)
+                $this->db->query(
+                    "INSERT IGNORE INTO cache_queue (archive_id, cache_type, priority, status)
+                     VALUES (?, 'thumbnail', 7, 'pending')",
+                    [$archiveId]
+                );
+            }
+        } catch (Exception $e) {
+            // Silently fail - don't break main request
+            error_log("Failed to queue search results caching: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Get video metadata
+     * Enhanced to proactively cache thumbnails and store raw metadata
      */
     public function getMetadata(string $archiveId): array {
         $startTime = microtime(true);
         $cacheHit = false;
+        $isStale = false;
 
         // Check cache first
         $cached = $this->metadataCache->get($archiveId);
 
         if ($cached !== null) {
             $cacheHit = true;
+            $isStale = isset($cached['_is_stale']) && $cached['_is_stale'];
+
             $result = [
                 'success' => true,
                 'cached' => true,
+                'stale' => $isStale,
                 'data' => $cached,
             ];
+
+            // Proactively cache thumbnail if not already cached
+            if ($this->proactiveThumbnailCaching) {
+                $this->queueThumbnailCaching($archiveId);
+            }
         } else {
             // Fetch from Archive.org
             $url = self::API_BASE_URL . "/metadata/{$archiveId}";
             $response = $this->httpGet($url);
 
             if ($response['success'] && !empty($response['data'])) {
-                $data = json_decode($response['data'], true);
+                $rawData = json_decode($response['data'], true);
 
-                if ($data && isset($data['metadata'])) {
+                if ($rawData && isset($rawData['metadata'])) {
                     // Extract and normalize metadata
-                    $metadata = $this->normalizeMetadata($archiveId, $data);
+                    $metadata = $this->normalizeMetadata($archiveId, $rawData);
 
-                    // Cache it
-                    $this->metadataCache->set($archiveId, $metadata);
+                    // Cache it with raw data for permanent storage
+                    $this->metadataCache->set($archiveId, $metadata, $this->storeRawMetadata ? $rawData : null);
 
                     $result = [
                         'success' => true,
                         'cached' => false,
                         'data' => $metadata,
                     ];
+
+                    // Proactively cache thumbnail
+                    if ($this->proactiveThumbnailCaching) {
+                        $this->queueThumbnailCaching($archiveId);
+                    }
                 } else {
                     $result = [
                         'success' => false,
@@ -144,6 +218,71 @@ class ArchiveOrgService {
         }
 
         return $result;
+    }
+
+    /**
+     * Queue thumbnail for caching (non-blocking)
+     */
+    private function queueThumbnailCaching(string $archiveId): void {
+        try {
+            // Check if already cached
+            $existing = $this->db->fetchOne(
+                "SELECT id FROM thumbnail_cache WHERE archive_id = ?",
+                [$archiveId]
+            );
+
+            if ($existing) {
+                return; // Already cached
+            }
+
+            // Check queue size
+            $queueSize = $this->db->fetchOne(
+                "SELECT COUNT(*) as count FROM cache_queue WHERE status = 'pending' AND cache_type = 'thumbnail'"
+            );
+
+            $pendingCount = (int)($queueSize['count'] ?? 0);
+
+            if ($pendingCount < 5) {
+                // Low queue, cache immediately in background
+                $this->cacheThumbnailAsync($archiveId);
+            } else {
+                // Add to queue for later processing
+                $this->db->query(
+                    "INSERT INTO cache_queue (archive_id, cache_type, priority, status)
+                     VALUES (?, 'thumbnail', 3, 'pending')
+                     ON DUPLICATE KEY UPDATE
+                        priority = LEAST(priority, VALUES(priority)),
+                        status = IF(status = 'failed', 'pending', status)",
+                    [$archiveId]
+                );
+            }
+        } catch (Exception $e) {
+            // Silently fail - don't break main request
+            error_log("Failed to queue thumbnail caching for {$archiveId}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Cache thumbnail asynchronously (best effort)
+     */
+    private function cacheThumbnailAsync(string $archiveId): void {
+        try {
+            // Use register_shutdown_function to cache after response is sent
+            register_shutdown_function(function() use ($archiveId) {
+                try {
+                    $this->thumbnailCache->cache($archiveId);
+                } catch (Exception $e) {
+                    error_log("Async thumbnail cache failed for {$archiveId}: " . $e->getMessage());
+                }
+            });
+        } catch (Exception $e) {
+            // Fallback: queue it
+            $this->db->query(
+                "INSERT IGNORE INTO cache_queue (archive_id, cache_type, priority, status)
+                 VALUES (?, 'thumbnail', 5, 'pending')",
+                [$archiveId]
+            );
+        }
     }
 
     /**

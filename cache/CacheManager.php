@@ -3,6 +3,7 @@
  * Unified Cache Manager
  *
  * Coordinates all caching operations for the application
+ * Enhanced for permanent local storage to minimize Archive.org API usage
  */
 
 require_once __DIR__ . '/../db/Database.php';
@@ -17,6 +18,10 @@ class CacheManager {
     private $thumbnailTTL = 604800; // 7 days
     private $settingsTTL = 3600;    // 1 hour
 
+    // Permanent storage settings
+    private $permanentCaching = true;
+    private $staleAfterDays = 30;   // Consider data stale after this many days
+
     public function __construct() {
         $this->db = Database::getInstance();
         $this->config = $this->db->getConfig();
@@ -28,6 +33,39 @@ class CacheManager {
             $this->thumbnailTTL = $this->config['cache']['thumbnail_ttl'] ?? $this->thumbnailTTL;
             $this->settingsTTL = $this->config['cache']['settings_ttl'] ?? $this->settingsTTL;
         }
+
+        // Load permanent caching settings
+        $this->loadPermanentCacheSettings();
+    }
+
+    /**
+     * Load permanent caching settings from database
+     */
+    private function loadPermanentCacheSettings(): void {
+        try {
+            $setting = $this->db->fetchOne(
+                "SELECT setting_value FROM site_settings WHERE setting_key = 'cacheMetadataPermanently'"
+            );
+            if ($setting) {
+                $this->permanentCaching = (bool)$setting['setting_value'];
+            }
+
+            $staleSetting = $this->db->fetchOne(
+                "SELECT setting_value FROM site_settings WHERE setting_key = 'refreshStaleAfterDays'"
+            );
+            if ($staleSetting) {
+                $this->staleAfterDays = (int)$staleSetting['setting_value'];
+            }
+        } catch (Exception $e) {
+            // Use defaults if settings don't exist yet
+        }
+    }
+
+    /**
+     * Check if permanent caching is enabled
+     */
+    public function isPermanentCachingEnabled(): bool {
+        return $this->permanentCaching;
     }
 
     /**
@@ -92,16 +130,18 @@ class CacheManager {
     }
 
     // =====================================================
-    // METADATA CACHE
+    // METADATA CACHE (Enhanced for Permanent Storage)
     // =====================================================
 
     /**
      * Get cached video metadata
+     * With permanent caching, returns data even if stale (marks for refresh)
      */
     public function getMetadataCache(string $archiveId): ?array {
+        // First try to get non-stale data
         $result = $this->db->fetchOne(
             "SELECT * FROM video_metadata_cache
-             WHERE archive_id = ? AND expires_at > NOW()",
+             WHERE archive_id = ? AND (expires_at IS NULL OR expires_at > NOW())",
             [$archiveId]
         );
 
@@ -110,19 +150,60 @@ class CacheManager {
             if (!empty($result['files_json'])) {
                 $result['files'] = json_decode($result['files_json'], true);
             }
-            unset($result['files_json']);
+            if (!empty($result['collection_json'])) {
+                $result['collection'] = json_decode($result['collection_json'], true);
+            }
+            if (!empty($result['raw_metadata_json'])) {
+                $result['raw_metadata'] = json_decode($result['raw_metadata_json'], true);
+            }
+            unset($result['files_json'], $result['collection_json'], $result['raw_metadata_json']);
+
+            // Update access tracking in registry
+            $this->updateCacheAccess($archiveId);
 
             return $result;
+        }
+
+        // If permanent caching is enabled, also return stale data
+        if ($this->permanentCaching) {
+            $staleResult = $this->db->fetchOne(
+                "SELECT * FROM video_metadata_cache WHERE archive_id = ?",
+                [$archiveId]
+            );
+
+            if ($staleResult) {
+                // Mark as stale for background refresh
+                $this->markMetadataStale($archiveId);
+
+                // Parse JSON fields
+                if (!empty($staleResult['files_json'])) {
+                    $staleResult['files'] = json_decode($staleResult['files_json'], true);
+                }
+                if (!empty($staleResult['collection_json'])) {
+                    $staleResult['collection'] = json_decode($staleResult['collection_json'], true);
+                }
+                unset($staleResult['files_json'], $staleResult['collection_json'], $staleResult['raw_metadata_json']);
+
+                $staleResult['_is_stale'] = true;
+
+                // Update access tracking
+                $this->updateCacheAccess($archiveId);
+
+                return $staleResult;
+            }
         }
 
         return null;
     }
 
     /**
-     * Set metadata cache
+     * Set metadata cache with permanent storage support
      */
-    public function setMetadataCache(string $archiveId, array $metadata): void {
-        $expiresAt = date('Y-m-d H:i:s', time() + $this->metadataTTL);
+    public function setMetadataCache(string $archiveId, array $metadata, ?array $rawMetadata = null): void {
+        // Calculate expiration based on permanent caching setting
+        $expiresAt = $this->permanentCaching
+            ? null  // No expiration for permanent caching
+            : date('Y-m-d H:i:s', time() + $this->metadataTTL);
 
         $filesJson = null;
         if (isset($metadata['files'])) {
@@ -136,10 +217,21 @@ class CacheManager {
                 : $metadata['subject'];
         }
 
+        $collectionJson = null;
+        if (isset($metadata['collection'])) {
+            $collectionJson = json_encode(
+                is_array($metadata['collection']) ? $metadata['collection'] : [$metadata['collection']]
+            );
+        }
+
+        $rawJson = $rawMetadata ? json_encode($rawMetadata) : null;
+
         $this->db->query(
             "INSERT INTO video_metadata_cache
-             (archive_id, title, description, creator, date, runtime, mediatype, downloads, license_url, subject, files_json, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (archive_id, title, description, creator, date, runtime, mediatype, downloads,
+              license_url, subject, files_json, collection_json, raw_metadata_json,
+              expires_at, is_permanent, is_stale, last_refreshed, refresh_count)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(), 0)
              ON DUPLICATE KEY UPDATE
                 title = VALUES(title),
                 description = VALUES(description),
@@ -151,7 +243,13 @@ class CacheManager {
                 license_url = VALUES(license_url),
                 subject = VALUES(subject),
                 files_json = VALUES(files_json),
+                collection_json = VALUES(collection_json),
+                raw_metadata_json = VALUES(raw_metadata_json),
                 expires_at = VALUES(expires_at),
+                is_permanent = VALUES(is_permanent),
+                is_stale = 0,
+                last_refreshed = NOW(),
+                refresh_count = refresh_count + 1,
                 updated_at = NOW()",
             [
                 $archiveId,
@@ -165,8 +263,40 @@ class CacheManager {
                 $this->extractValue($metadata, 'licenseurl'),
                 $subject,
                 $filesJson,
-                $expiresAt
+                $collectionJson,
+                $rawJson,
+                $expiresAt,
+                $this->permanentCaching ? 1 : 0
             ]
+        );
+
+        // Update cached items registry
+        $this->updateCacheRegistry($archiveId, ['has_metadata' => 1]);
+    }
+
+    /**
+     * Mark metadata as stale (for background refresh)
+     */
+    public function markMetadataStale(string $archiveId): void {
+        $this->db->query(
+            "UPDATE video_metadata_cache SET is_stale = 1 WHERE archive_id = ?",
+            [$archiveId]
+        );
+
+        // Queue for background refresh
+        $this->queueForCaching($archiveId, 'metadata', 5);
+    }
+
+    /**
+     * Get list of stale items for background refresh
+     */
+    public function getStaleMetadata(int $limit = 50): array {
+        return $this->db->fetchAll(
+            "SELECT archive_id, title, last_refreshed FROM video_metadata_cache
+             WHERE is_stale = 1 OR (is_permanent = 1 AND last_refreshed < DATE_SUB(NOW(), INTERVAL ? DAY))
+             ORDER BY last_refreshed ASC
+             LIMIT ?",
+            [$this->staleAfterDays, $limit]
         );
     }
 
@@ -178,6 +308,115 @@ class CacheManager {
             return null;
         }
         return is_array($data[$key]) ? $data[$key][0] : $data[$key];
+    }
+
+    /**
+     * Update cache access tracking in registry
+     */
+    private function updateCacheAccess(string $archiveId): void {
+        try {
+            $this->db->query(
+                "INSERT INTO cached_items_registry (archive_id, last_accessed, access_count)
+                 VALUES (?, NOW(), 1)
+                 ON DUPLICATE KEY UPDATE
+                    last_accessed = NOW(),
+                    access_count = access_count + 1",
+                [$archiveId]
+            );
+        } catch (Exception $e) {
+            // Silently fail - registry is not critical
+        }
+    }
+
+    /**
+     * Update cached items registry
+     */
+    public function updateCacheRegistry(string $archiveId, array $fields): void {
+        try {
+            $setClauses = [];
+            $values = [$archiveId];
+
+            foreach ($fields as $key => $value) {
+                if (in_array($key, ['has_metadata', 'has_thumbnail', 'has_files_list', 'total_size_bytes', 'source'])) {
+                    $setClauses[] = "$key = ?";
+                    $values[] = $value;
+                }
+            }
+
+            if (empty($setClauses)) return;
+
+            $values[] = $archiveId; // for the WHERE clause in UPDATE
+
+            $this->db->query(
+                "INSERT INTO cached_items_registry (archive_id, " . implode(', ', array_keys($fields)) . ")
+                 VALUES (?, " . implode(', ', array_fill(0, count($fields), '?')) . ")
+                 ON DUPLICATE KEY UPDATE " . implode(', ', $setClauses),
+                array_merge([$archiveId], array_values($fields), array_values($fields))
+            );
+        } catch (Exception $e) {
+            // Silently fail - registry is not critical
+        }
+    }
+
+    /**
+     * Queue an item for background caching
+     */
+    public function queueForCaching(string $archiveId, string $cacheType, int $priority = 5): void {
+        try {
+            $this->db->query(
+                "INSERT INTO cache_queue (archive_id, cache_type, priority, status)
+                 VALUES (?, ?, ?, 'pending')
+                 ON DUPLICATE KEY UPDATE
+                    priority = LEAST(priority, VALUES(priority)),
+                    status = IF(status = 'failed', 'pending', status)",
+                [$archiveId, $cacheType, $priority]
+            );
+        } catch (Exception $e) {
+            // Silently fail - queue is not critical
+        }
+    }
+
+    /**
+     * Get pending items from cache queue
+     */
+    public function getPendingCacheItems(string $cacheType, int $limit = 20): array {
+        return $this->db->fetchAll(
+            "SELECT * FROM cache_queue
+             WHERE cache_type = ? AND status = 'pending' AND attempts < max_attempts
+             ORDER BY priority ASC, created_at ASC
+             LIMIT ?",
+            [$cacheType, $limit]
+        );
+    }
+
+    /**
+     * Mark cache queue item as processing
+     */
+    public function markQueueItemProcessing(int $id): void {
+        $this->db->query(
+            "UPDATE cache_queue SET status = 'processing', attempts = attempts + 1 WHERE id = ?",
+            [$id]
+        );
+    }
+
+    /**
+     * Mark cache queue item as completed
+     */
+    public function markQueueItemCompleted(int $id): void {
+        $this->db->query(
+            "UPDATE cache_queue SET status = 'completed', processed_at = NOW() WHERE id = ?",
+            [$id]
+        );
+    }
+
+    /**
+     * Mark cache queue item as failed
+     */
+    public function markQueueItemFailed(int $id, string $error): void {
+        $this->db->query(
+            "UPDATE cache_queue SET status = 'failed', error_message = ? WHERE id = ?",
+            [$error, $id]
+        );
     }
 
     // =====================================================
@@ -231,6 +470,34 @@ class CacheManager {
                 $imageInfo['mime'] ?? 'image/jpeg'
             ]
         );
+
+        // Update cached items registry
+        $this->updateCacheRegistry($archiveId, [
+            'has_thumbnail' => 1,
+            'total_size_bytes' => $imageInfo['size'] ?? 0
+        ]);
+
+        // Also update video_metadata_cache if exists
+        try {
+            $this->db->query(
+                "UPDATE video_metadata_cache SET thumbnail_cached = 1 WHERE archive_id = ?",
+                [$archiveId]
+            );
+        } catch (Exception $e) {
+            // Ignore if table doesn't have the column yet
+        }
+    }
+
+    /**
+     * Check if a thumbnail is cached locally
+     */
+    public function isThumbnailCached(string $archiveId): bool {
+        $result = $this->db->fetchOne(
+            "SELECT local_path FROM thumbnail_cache WHERE archive_id = ?",
+            [$archiveId]
+        );
+
+        return $result && file_exists($result['local_path']);
     }
 
     // =====================================================
@@ -287,19 +554,27 @@ class CacheManager {
         // Search cache stats
         $searchStats = $this->db->fetchOne(
             "SELECT COUNT(*) as total, SUM(hit_count) as total_hits
-             FROM search_cache WHERE expires_at > NOW()"
+             FROM search_cache WHERE expires_at IS NULL OR expires_at > NOW()"
         );
         $stats['search'] = [
             'entries' => (int)($searchStats['total'] ?? 0),
             'total_hits' => (int)($searchStats['total_hits'] ?? 0),
         ];
 
-        // Metadata cache stats
+        // Metadata cache stats (include permanent entries)
         $metadataStats = $this->db->fetchOne(
-            "SELECT COUNT(*) as total FROM video_metadata_cache WHERE expires_at > NOW()"
+            "SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN is_permanent = 1 THEN 1 ELSE 0 END) as permanent_count,
+                SUM(CASE WHEN is_stale = 1 THEN 1 ELSE 0 END) as stale_count,
+                SUM(CASE WHEN thumbnail_cached = 1 THEN 1 ELSE 0 END) as with_thumbnails
+             FROM video_metadata_cache"
         );
         $stats['metadata'] = [
             'entries' => (int)($metadataStats['total'] ?? 0),
+            'permanent' => (int)($metadataStats['permanent_count'] ?? 0),
+            'stale' => (int)($metadataStats['stale_count'] ?? 0),
+            'with_thumbnails' => (int)($metadataStats['with_thumbnails'] ?? 0),
         ];
 
         // Thumbnail cache stats
@@ -313,7 +588,133 @@ class CacheManager {
             'total_accesses' => (int)($thumbStats['total_access'] ?? 0),
         ];
 
+        // Cache queue stats
+        try {
+            $queueStats = $this->db->fetchOne(
+                "SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+                 FROM cache_queue"
+            );
+            $stats['queue'] = [
+                'total' => (int)($queueStats['total'] ?? 0),
+                'pending' => (int)($queueStats['pending'] ?? 0),
+                'processing' => (int)($queueStats['processing'] ?? 0),
+                'failed' => (int)($queueStats['failed'] ?? 0),
+            ];
+        } catch (Exception $e) {
+            $stats['queue'] = ['total' => 0, 'pending' => 0, 'processing' => 0, 'failed' => 0];
+        }
+
+        // Cached items registry stats
+        try {
+            $registryStats = $this->db->fetchOne(
+                "SELECT
+                    COUNT(*) as total_items,
+                    SUM(has_metadata) as with_metadata,
+                    SUM(has_thumbnail) as with_thumbnail,
+                    SUM(total_size_bytes) as total_storage
+                 FROM cached_items_registry"
+            );
+            $stats['registry'] = [
+                'total_items' => (int)($registryStats['total_items'] ?? 0),
+                'with_metadata' => (int)($registryStats['with_metadata'] ?? 0),
+                'with_thumbnail' => (int)($registryStats['with_thumbnail'] ?? 0),
+                'total_storage_bytes' => (int)($registryStats['total_storage'] ?? 0),
+            ];
+        } catch (Exception $e) {
+            $stats['registry'] = ['total_items' => 0, 'with_metadata' => 0, 'with_thumbnail' => 0, 'total_storage_bytes' => 0];
+        }
+
         return $stats;
+    }
+
+    /**
+     * Get comprehensive cache statistics including savings
+     */
+    public function getDetailedStats(): array {
+        $stats = $this->getStats();
+
+        // Calculate API calls saved
+        $apiSavings = $this->db->fetchOne(
+            "SELECT
+                SUM(CASE WHEN cache_hit = 1 THEN 1 ELSE 0 END) as hits,
+                SUM(CASE WHEN cache_hit = 0 THEN 1 ELSE 0 END) as misses,
+                COUNT(*) as total
+             FROM api_usage_log
+             WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)"
+        );
+
+        $stats['api_savings'] = [
+            'calls_saved_30d' => (int)($apiSavings['hits'] ?? 0),
+            'cache_misses_30d' => (int)($apiSavings['misses'] ?? 0),
+            'hit_rate_30d' => $apiSavings['total'] > 0
+                ? round(($apiSavings['hits'] / $apiSavings['total']) * 100, 2)
+                : 0,
+        ];
+
+        // Storage breakdown
+        $stats['storage'] = [
+            'thumbnails_bytes' => $stats['thumbnails']['total_size_bytes'],
+            'thumbnails_formatted' => $this->formatBytes($stats['thumbnails']['total_size_bytes']),
+        ];
+
+        return $stats;
+    }
+
+    /**
+     * Format bytes to human readable
+     */
+    private function formatBytes(int $bytes): string {
+        if ($bytes >= 1073741824) {
+            return round($bytes / 1073741824, 2) . ' GB';
+        } elseif ($bytes >= 1048576) {
+            return round($bytes / 1048576, 2) . ' MB';
+        } elseif ($bytes >= 1024) {
+            return round($bytes / 1024, 2) . ' KB';
+        }
+        return $bytes . ' bytes';
+    }
+
+    /**
+     * Record daily cache statistics
+     */
+    public function recordDailyStats(): void {
+        $stats = $this->getStats();
+
+        try {
+            $apiStats = $this->db->fetchOne(
+                "SELECT
+                    SUM(cache_hit) as hits,
+                    COUNT(*) - SUM(cache_hit) as misses
+                 FROM api_usage_log
+                 WHERE DATE(created_at) = CURDATE()"
+            );
+
+            $this->db->query(
+                "INSERT INTO cache_statistics
+                 (stat_date, metadata_cached, thumbnails_cached, total_storage_bytes, cache_hit_count, cache_miss_count)
+                 VALUES (CURDATE(), ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    metadata_cached = VALUES(metadata_cached),
+                    thumbnails_cached = VALUES(thumbnails_cached),
+                    total_storage_bytes = VALUES(total_storage_bytes),
+                    cache_hit_count = VALUES(cache_hit_count),
+                    cache_miss_count = VALUES(cache_miss_count),
+                    updated_at = NOW()",
+                [
+                    $stats['metadata']['entries'],
+                    $stats['thumbnails']['entries'],
+                    $stats['thumbnails']['total_size_bytes'],
+                    (int)($apiStats['hits'] ?? 0),
+                    (int)($apiStats['misses'] ?? 0)
+                ]
+            );
+        } catch (Exception $e) {
+            error_log("Failed to record daily stats: " . $e->getMessage());
+        }
     }
 
     /**
