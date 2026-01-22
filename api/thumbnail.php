@@ -111,7 +111,8 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
 
     $imageData = @file_get_contents($sourceUrl, false, $context);
 
-    if ($imageData === false) {
+    if ($imageData === false || strlen($imageData) < 100) {
+        error_log("Thumbnail download failed for {$archiveId}: no data received");
         return null;
     }
 
@@ -120,12 +121,14 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
     $mime = $finfo->buffer($imageData);
 
     if (!in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'])) {
+        error_log("Thumbnail download failed for {$archiveId}: invalid mime type {$mime}");
         return null;
     }
 
     // Create image from data
     $image = @imagecreatefromstring($imageData);
     if (!$image) {
+        error_log("Thumbnail processing failed for {$archiveId}: imagecreatefromstring failed");
         return null;
     }
 
@@ -149,12 +152,29 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
         $height = $newHeight;
     }
 
-    // Determine thumbnail directory
-    $thumbnailDir = $config['paths']['thumbnails'] ?? __DIR__ . '/../thumbnails';
+    // Determine thumbnail directory and normalize path
+    $thumbnailDir = $config['paths']['thumbnails'] ?? dirname(__DIR__) . '/thumbnails';
+
+    // Normalize the path if possible (resolve any remaining '..' or symlinks)
+    $realDir = realpath($thumbnailDir);
+    if ($realDir !== false) {
+        $thumbnailDir = $realDir;
+    }
 
     // Ensure directory exists
     if (!is_dir($thumbnailDir)) {
-        mkdir($thumbnailDir, 0755, true);
+        if (!@mkdir($thumbnailDir, 0755, true)) {
+            error_log("Thumbnail cache failed for {$archiveId}: could not create directory {$thumbnailDir}");
+            imagedestroy($image);
+            return null;
+        }
+    }
+
+    // Check directory is writable
+    if (!is_writable($thumbnailDir)) {
+        error_log("Thumbnail cache failed for {$archiveId}: directory not writable {$thumbnailDir}");
+        imagedestroy($image);
+        return null;
     }
 
     // Generate safe filename
@@ -162,10 +182,11 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
     $localPath = $thumbnailDir . '/' . $safeId . '.jpg';
 
     // Save as JPEG
-    $success = imagejpeg($image, $localPath, 85);
+    $success = @imagejpeg($image, $localPath, 85);
     imagedestroy($image);
 
     if (!$success) {
+        error_log("Thumbnail cache failed for {$archiveId}: imagejpeg failed for {$localPath}");
         return null;
     }
 
