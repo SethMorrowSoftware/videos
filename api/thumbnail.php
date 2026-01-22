@@ -6,18 +6,29 @@
  * ALWAYS falls back to Archive.org redirect if anything goes wrong.
  */
 
+// Start output buffering immediately to catch any accidental output
+ob_start();
+
 // Get video ID early so we can redirect on any error
 $archiveId = $_GET['id'] ?? '';
 $archiveId = preg_replace('/[^a-zA-Z0-9_-]/', '', $archiveId);
 
 // Helper function to redirect to Archive.org (fallback)
 function redirectToArchive($id) {
-    header("Location: https://archive.org/services/img/{$id}", true, 302);
+    // Clean any buffered output that might interfere with headers
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+
+    if (!headers_sent()) {
+        header("Location: https://archive.org/services/img/{$id}", true, 302);
+    }
     exit;
 }
 
 // Validate ID
 if (empty($archiveId)) {
+    ob_end_clean();
     http_response_code(400);
     header('Content-Type: application/json');
     echo json_encode(['error' => 'Missing video ID']);
@@ -29,14 +40,19 @@ register_shutdown_function(function() use ($archiveId) {
     $error = error_get_last();
     if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
         error_log("Thumbnail API fatal error for {$archiveId}: " . $error['message']);
-        if (!headers_sent()) {
-            redirectToArchive($archiveId);
-        }
+        redirectToArchive($archiveId);
     }
 });
 
+// Wrap everything in try-catch for maximum safety
 try {
-    require_once __DIR__ . '/../db/Database.php';
+    // Try to load database - if this fails, redirect immediately
+    $dbFile = __DIR__ . '/../db/Database.php';
+    if (!file_exists($dbFile)) {
+        throw new Exception("Database file not found");
+    }
+
+    require_once $dbFile;
 
     $db = Database::getInstance();
     $config = $db->getConfig();
@@ -48,10 +64,17 @@ try {
     }
 
     // Check if we have this thumbnail cached locally
-    $result = $db->fetchOne(
-        "SELECT local_path FROM thumbnail_cache WHERE archive_id = ?",
-        [$archiveId]
-    );
+    $result = null;
+    try {
+        $result = $db->fetchOne(
+            "SELECT local_path FROM thumbnail_cache WHERE archive_id = ?",
+            [$archiveId]
+        );
+    } catch (Exception $e) {
+        // Table might not exist - that's OK, just redirect
+        error_log("Thumbnail cache query failed: " . $e->getMessage());
+        redirectToArchive($archiveId);
+    }
 
     $localPath = null;
 
@@ -59,17 +82,17 @@ try {
         // We have it cached!
         $localPath = $result['local_path'];
 
-        // Update access count (best effort)
+        // Update access count (best effort, ignore failures)
         try {
             $db->query(
                 "UPDATE thumbnail_cache SET access_count = access_count + 1, last_accessed = NOW() WHERE archive_id = ?",
                 [$archiveId]
             );
         } catch (Exception $e) {
-            // Ignore
+            // Ignore - not critical
         }
     } else {
-        // NOT CACHED - Download from Archive.org and cache it
+        // NOT CACHED - Try to download from Archive.org and cache it
         $localPath = downloadAndCacheThumbnail($archiveId, $db, $config);
     }
 
@@ -78,20 +101,18 @@ try {
         serveFile($localPath);
     } else {
         // Caching failed - redirect to Archive.org
-        header('X-Cache: MISS');
         redirectToArchive($archiveId);
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    // Catch absolutely everything (Exception and Error)
     error_log("Thumbnail API error for {$archiveId}: " . $e->getMessage());
-    redirectToArchive($archiveId);
-} catch (Error $e) {
-    error_log("Thumbnail API fatal error for {$archiveId}: " . $e->getMessage());
     redirectToArchive($archiveId);
 }
 
 /**
  * Download thumbnail from Archive.org and cache it locally
+ * Returns null if caching fails (caller will redirect to Archive.org)
  */
 function downloadAndCacheThumbnail($archiveId, $db, $config) {
     $sourceUrl = "https://archive.org/services/img/{$archiveId}";
@@ -112,23 +133,29 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
     $imageData = @file_get_contents($sourceUrl, false, $context);
 
     if ($imageData === false || strlen($imageData) < 100) {
-        error_log("Thumbnail download failed for {$archiveId}: no data received");
         return null;
     }
 
     // Verify it's an image
+    if (!class_exists('finfo')) {
+        return null; // finfo extension not available
+    }
+
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->buffer($imageData);
 
     if (!in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'])) {
-        error_log("Thumbnail download failed for {$archiveId}: invalid mime type {$mime}");
         return null;
+    }
+
+    // Check if GD is available
+    if (!function_exists('imagecreatefromstring')) {
+        return null; // GD extension not available
     }
 
     // Create image from data
     $image = @imagecreatefromstring($imageData);
     if (!$image) {
-        error_log("Thumbnail processing failed for {$archiveId}: imagecreatefromstring failed");
         return null;
     }
 
@@ -155,24 +182,21 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
     // Determine thumbnail directory and normalize path
     $thumbnailDir = $config['paths']['thumbnails'] ?? dirname(__DIR__) . '/thumbnails';
 
-    // Normalize the path if possible (resolve any remaining '..' or symlinks)
+    // Normalize the path if possible
     $realDir = realpath($thumbnailDir);
     if ($realDir !== false) {
         $thumbnailDir = $realDir;
     }
 
-    // Ensure directory exists
+    // Ensure directory exists and is writable
     if (!is_dir($thumbnailDir)) {
         if (!@mkdir($thumbnailDir, 0755, true)) {
-            error_log("Thumbnail cache failed for {$archiveId}: could not create directory {$thumbnailDir}");
             imagedestroy($image);
             return null;
         }
     }
 
-    // Check directory is writable
     if (!is_writable($thumbnailDir)) {
-        error_log("Thumbnail cache failed for {$archiveId}: directory not writable {$thumbnailDir}");
         imagedestroy($image);
         return null;
     }
@@ -185,12 +209,11 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
     $success = @imagejpeg($image, $localPath, 85);
     imagedestroy($image);
 
-    if (!$success) {
-        error_log("Thumbnail cache failed for {$archiveId}: imagejpeg failed for {$localPath}");
+    if (!$success || !file_exists($localPath)) {
         return null;
     }
 
-    // Store in database
+    // Store in database (best effort - ignore failures)
     try {
         $fileSize = filesize($localPath);
         $db->query(
@@ -206,8 +229,7 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
             [$archiveId, $sourceUrl, $localPath, $fileSize, $width, $height]
         );
     } catch (Exception $e) {
-        // Database insert failed, but we still have the file
-        error_log("Failed to insert thumbnail cache record for {$archiveId}: " . $e->getMessage());
+        // Database insert failed, but we still have the file - that's OK
     }
 
     return $localPath;
@@ -217,13 +239,18 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
  * Serve a file with proper caching headers
  */
 function serveFile($path) {
-    $mime = mime_content_type($path);
-    $size = filesize($path);
-    $mtime = filemtime($path);
+    // Clean output buffer before serving
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+
+    $mime = @mime_content_type($path) ?: 'image/jpeg';
+    $size = @filesize($path);
+    $mtime = @filemtime($path);
     $etag = md5($path . $mtime);
 
     // Check for If-None-Match header (browser cache)
-    if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && $_SERVER['HTTP_IF_NONE_MATCH'] === $etag) {
+    if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && trim($_SERVER['HTTP_IF_NONE_MATCH'], '"') === $etag) {
         header('HTTP/1.1 304 Not Modified');
         exit;
     }
@@ -232,7 +259,7 @@ function serveFile($path) {
     header('Content-Type: ' . $mime);
     header('Content-Length: ' . $size);
     header('Cache-Control: public, max-age=604800'); // 7 days
-    header('ETag: ' . $etag);
+    header('ETag: "' . $etag . '"');
     header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
     header('X-Cache: HIT');
 
