@@ -153,18 +153,25 @@ export function throttle(func, limit) {
  * Get thumbnail URL for an archive.org item
  * Uses local caching API when available, falls back to archive.org
  */
-let useLocalThumbnails = true; // Track if local API is available
+let useLocalThumbnails = false; // Disabled by default - use archive.org directly for reliability
 
 export function getThumbnailUrl(identifier) {
   if (!identifier) return '';
 
-  // Try local caching API first
+  // Use local caching API if enabled
   if (useLocalThumbnails) {
     return `/api/thumbnail.php?id=${encodeURIComponent(identifier)}`;
   }
 
-  // Fallback to archive.org directly
+  // Use archive.org directly (most reliable)
   return `https://archive.org/services/img/${identifier}`;
+}
+
+/**
+ * Enable local thumbnail API
+ */
+export function enableLocalThumbnails() {
+  useLocalThumbnails = true;
 }
 
 /**
@@ -192,6 +199,7 @@ export default {
   debounce,
   throttle,
   getThumbnailUrl,
+  enableLocalThumbnails,
   disableLocalThumbnails,
   isLocalThumbnailsEnabled
 };
