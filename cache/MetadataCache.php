@@ -21,9 +21,27 @@ class MetadataCache {
 
     /**
      * Store metadata in cache
+     * @param string $archiveId The Archive.org identifier
+     * @param array $metadata Normalized metadata
+     * @param array|null $rawMetadata Optional raw Archive.org response for permanent storage
      */
-    public function set(string $archiveId, array $metadata): void {
-        $this->cacheManager->setMetadataCache($archiveId, $metadata);
+    public function set(string $archiveId, array $metadata, ?array $rawMetadata = null): void {
+        $this->cacheManager->setMetadataCache($archiveId, $metadata, $rawMetadata);
+    }
+
+    /**
+     * Check if an item is cached but stale (needs refresh)
+     */
+    public function isStale(string $archiveId): bool {
+        $cached = $this->get($archiveId);
+        return $cached !== null && isset($cached['_is_stale']) && $cached['_is_stale'];
+    }
+
+    /**
+     * Mark an item as stale (for background refresh)
+     */
+    public function markStale(string $archiveId): void {
+        $this->cacheManager->markMetadataStale($archiveId);
     }
 
     /**

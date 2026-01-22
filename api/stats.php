@@ -12,6 +12,20 @@ require_once __DIR__ . '/../services/AdminAuthService.php';
 require_once __DIR__ . '/../services/ArchiveOrgService.php';
 require_once __DIR__ . '/../cache/CacheManager.php';
 
+/**
+ * Format bytes to human readable
+ */
+function formatBytes(int $bytes): string {
+    if ($bytes >= 1073741824) {
+        return round($bytes / 1073741824, 2) . ' GB';
+    } elseif ($bytes >= 1048576) {
+        return round($bytes / 1048576, 2) . ' MB';
+    } elseif ($bytes >= 1024) {
+        return round($bytes / 1024, 2) . ' KB';
+    }
+    return $bytes . ' bytes';
+}
+
 // Only allow GET requests
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -40,6 +54,53 @@ switch ($action) {
             'data' => [
                 'cache' => $cacheManager->getStats(),
                 'hitRates' => $cacheManager->getHitRate('24 hours'),
+            ],
+        ]);
+        break;
+
+    case 'detailed':
+        $cacheManager = new CacheManager();
+
+        echo json_encode([
+            'success' => true,
+            'data' => $cacheManager->getDetailedStats(),
+        ]);
+        break;
+
+    case 'storage':
+        $cacheManager = new CacheManager();
+        $stats = $cacheManager->getDetailedStats();
+
+        // Calculate thumbnail storage separately
+        $thumbDir = __DIR__ . '/../thumbnails';
+        $thumbDirSize = 0;
+        $thumbCount = 0;
+
+        if (is_dir($thumbDir)) {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($thumbDir, RecursiveDirectoryIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                if ($file->isFile()) {
+                    $thumbDirSize += $file->getSize();
+                    $thumbCount++;
+                }
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'thumbnails' => [
+                    'count' => $thumbCount,
+                    'size_bytes' => $thumbDirSize,
+                    'size_formatted' => formatBytes($thumbDirSize),
+                ],
+                'metadata' => [
+                    'count' => $stats['metadata']['entries'] ?? 0,
+                    'permanent' => $stats['metadata']['permanent'] ?? 0,
+                ],
+                'api_savings' => $stats['api_savings'] ?? [],
             ],
         ]);
         break;
