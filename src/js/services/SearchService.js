@@ -122,7 +122,19 @@ export class SearchService {
       throw new Error(data.error);
     }
 
-    // Transform to match Archive.org format if needed
+    // Check for success flag from our API
+    if (data.success === false) {
+      throw new Error(data.error || 'Search failed');
+    }
+
+    // Unwrap the API response to match Archive.org format
+    // Our API returns { success, cached, data: { response: {...} } }
+    // But the app expects { response: {...} }
+    if (data.data && data.data.response) {
+      return data.data;
+    }
+
+    // Fallback: return as-is if already in Archive.org format
     return data;
   }
 
