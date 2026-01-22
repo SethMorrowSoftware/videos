@@ -60,9 +60,9 @@ return [
         'api_logging' => filter_var(getenv('ENABLE_API_LOGGING') ?: 'true', FILTER_VALIDATE_BOOLEAN),
     ],
 
-    // Paths
+    // Paths (use dirname() for clean paths without '..')
     'paths' => [
-        'thumbnails' => getenv('THUMBNAIL_CACHE_PATH') ?: __DIR__ . '/../thumbnails',
-        'logs' => getenv('LOG_PATH') ?: __DIR__ . '/../logs',
+        'thumbnails' => getenv('THUMBNAIL_CACHE_PATH') ?: dirname(__DIR__) . '/thumbnails',
+        'logs' => getenv('LOG_PATH') ?: dirname(__DIR__) . '/logs',
     ],
 ];

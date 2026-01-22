@@ -17,11 +17,17 @@ class ThumbnailCache {
     public function __construct() {
         $this->cacheManager = new CacheManager();
         $config = Database::getInstance()->getConfig();
-        $this->thumbnailDir = $config['paths']['thumbnails'] ?? __DIR__ . '/../thumbnails';
+        $this->thumbnailDir = $config['paths']['thumbnails'] ?? dirname(__DIR__) . '/thumbnails';
+
+        // Normalize the path if possible
+        $realDir = realpath($this->thumbnailDir);
+        if ($realDir !== false) {
+            $this->thumbnailDir = $realDir;
+        }
 
         // Ensure thumbnail directory exists
         if (!is_dir($this->thumbnailDir)) {
-            mkdir($this->thumbnailDir, 0755, true);
+            @mkdir($this->thumbnailDir, 0755, true);
         }
     }
 
