@@ -9,13 +9,13 @@ const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
 
-// Static assets to cache on install
+// Static assets to cache on install (relative paths for subdirectory support)
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/app.js',
-  '/manifest.json',
+  './',
+  './index.html',
+  './styles.css',
+  './app.js',
+  './manifest.json',
   'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap'
 ];
 
@@ -90,8 +90,8 @@ self.addEventListener('fetch', event => {
   // Handle different types of requests
   if (request.destination === 'image' || url.pathname.includes('/img/')) {
     event.respondWith(handleImageRequest(request));
-  } else if (url.origin === location.origin && url.pathname.startsWith('/api/')) {
-    // Handle local API requests with caching
+  } else if (url.origin === location.origin && url.pathname.includes('/api/')) {
+    // Handle local API requests with caching (supports subdirectory deployment)
     event.respondWith(handleApiRequest(request));
   } else if (url.origin === location.origin) {
     event.respondWith(handleAppRequest(request));
@@ -107,16 +107,18 @@ self.addEventListener('fetch', event => {
  */
 async function handleApiRequest(request) {
   const url = new URL(request.url);
-  const endpoint = url.pathname;
+  // Extract just the filename from the path (supports subdirectory deployment)
+  const pathParts = url.pathname.split('/');
+  const endpoint = pathParts[pathParts.length - 1];
 
-  // Determine cache strategy based on endpoint
+  // Determine cache strategy based on endpoint filename
   const cacheStrategies = {
-    '/api/search.php': { ttl: 5 * 60 * 1000, strategy: 'network-first' },      // 5 min
-    '/api/metadata.php': { ttl: 60 * 60 * 1000, strategy: 'cache-first' },     // 1 hour
-    '/api/thumbnail.php': { ttl: 7 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 7 days
-    '/api/settings.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 1 hour
-    '/api/recommendations.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
-    '/api/sections.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    'search.php': { ttl: 5 * 60 * 1000, strategy: 'network-first' },      // 5 min
+    'metadata.php': { ttl: 60 * 60 * 1000, strategy: 'cache-first' },     // 1 hour
+    'thumbnail.php': { ttl: 7 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 7 days
+    'settings.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 1 hour
+    'recommendations.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    'sections.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
   };
 
   const config = cacheStrategies[endpoint] || { ttl: 5 * 60 * 1000, strategy: 'network-first' };
@@ -255,7 +257,7 @@ async function handleAppRequest(request) {
     console.error('[SW] App request failed:', error);
     
     // Return offline page if available
-    const offlinePage = await caches.match('/offline.html');
+    const offlinePage = await caches.match('./offline.html');
     if (offlinePage) return offlinePage;
     
     // Fallback to a basic offline response
@@ -349,7 +351,7 @@ async function handleImageRequest(request) {
     console.error('[SW] Image request failed:', error);
     
     // Return placeholder image if available
-    const placeholderImage = await caches.match('/images/placeholder.png');
+    const placeholderImage = await caches.match('./images/placeholder.png');
     if (placeholderImage) return placeholderImage;
     
     // Return a 1x1 transparent PNG as ultimate fallback

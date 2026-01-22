@@ -160,7 +160,7 @@ export function getThumbnailUrl(identifier) {
 
   // Use local caching API if enabled
   if (useLocalThumbnails) {
-    return `/api/thumbnail.php?id=${encodeURIComponent(identifier)}`;
+    return `api/thumbnail.php?id=${encodeURIComponent(identifier)}`;
   }
 
   // Use archive.org directly (most reliable)

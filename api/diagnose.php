@@ -179,36 +179,118 @@ header('Content-Type: text/html; charset=utf-8');
 
     <h2>7. Test Thumbnail Download</h2>
     <?php
+    // Check allow_url_fopen
+    $allowUrlFopen = ini_get('allow_url_fopen');
+    $curlAvailable = function_exists('curl_init');
+    ?>
+    <div class="check <?php echo $allowUrlFopen ? 'pass' : 'warn'; ?>">
+        <strong>allow_url_fopen:</strong> <?php echo $allowUrlFopen ? 'Enabled' : 'DISABLED'; ?>
+    </div>
+    <div class="check <?php echo $curlAvailable ? 'pass' : 'fail'; ?>">
+        <strong>cURL Extension:</strong> <?php echo $curlAvailable ? 'Available' : 'NOT AVAILABLE'; ?>
+    </div>
+
+    <?php
     if ($thumbDirWritable):
         $testUrl = 'https://archive.org/services/img/night_of_the_living_dead';
-        $context = stream_context_create([
-            'http' => ['timeout' => 10, 'user_agent' => 'Mozilla/5.0'],
-            'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
-        ]);
+        $testData = false;
+        $downloadMethod = '';
+        $downloadError = '';
 
-        $testData = @file_get_contents($testUrl, false, $context);
+        // Try cURL first (more reliable on shared hosting)
+        if ($curlAvailable) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $testUrl,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                CURLOPT_SSL_VERIFYPEER => true,
+            ]);
+            $testData = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            if ($testData !== false && strlen($testData) > 100 && $httpCode === 200) {
+                $downloadMethod = 'cURL';
+            } else {
+                $testData = false;
+                $downloadError = "cURL: HTTP $httpCode" . ($curlError ? " - $curlError" : '');
+            }
+        }
+
+        // Fallback to file_get_contents if cURL failed
+        if ($testData === false && $allowUrlFopen) {
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 15,
+                    'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                    'ignore_errors' => true,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                ],
+            ]);
+
+            $testData = @file_get_contents($testUrl, false, $context);
+            if ($testData !== false && strlen($testData) > 100) {
+                $downloadMethod = 'file_get_contents';
+            } else {
+                $testData = false;
+                $downloadError .= ($downloadError ? '; ' : '') . 'file_get_contents failed';
+                if (isset($http_response_header)) {
+                    $downloadError .= ' (' . $http_response_header[0] . ')';
+                }
+            }
+        }
+
         $downloadOk = ($testData !== false && strlen($testData) > 100);
     ?>
     <div class="check <?php echo $downloadOk ? 'pass' : 'fail'; ?>">
         <strong>Download from Archive.org:</strong>
-        <?php echo $downloadOk ? 'SUCCESS (' . strlen($testData) . ' bytes)' : 'FAILED'; ?>
+        <?php if ($downloadOk): ?>
+            SUCCESS (<?php echo strlen($testData); ?> bytes via <?php echo $downloadMethod; ?>)
+        <?php else: ?>
+            FAILED<?php echo $downloadError ? " - $downloadError" : ''; ?>
+        <?php endif; ?>
     </div>
+
+    <?php if (!$downloadOk && !$curlAvailable && !$allowUrlFopen): ?>
+    <div class="action">
+        <strong>Problem:</strong> Your server cannot make outbound HTTP requests.
+        <ul>
+            <li>cURL extension is not available</li>
+            <li>allow_url_fopen is disabled</li>
+        </ul>
+        <strong>Solution:</strong> Contact your hosting provider to enable cURL or allow_url_fopen.<br>
+        In cPanel, go to <strong>Select PHP Version → Extensions</strong> and enable <strong>curl</strong>.
+    </div>
+    <?php endif; ?>
 
     <?php if ($downloadOk):
         $testPath = $thumbDir . '/test_diagnostic.jpg';
         $image = @imagecreatefromstring($testData);
         $saveOk = false;
+        $saveError = '';
         if ($image) {
             $saveOk = @imagejpeg($image, $testPath, 85);
+            if (!$saveOk) {
+                $saveError = error_get_last()['message'] ?? 'Unknown error';
+            }
             imagedestroy($image);
             if ($saveOk) {
                 @unlink($testPath); // Clean up
             }
+        } else {
+            $saveError = 'Could not create image from downloaded data';
         }
     ?>
     <div class="check <?php echo $saveOk ? 'pass' : 'fail'; ?>">
         <strong>Save Thumbnail File:</strong>
-        <?php echo $saveOk ? 'SUCCESS' : 'FAILED - Check GD library and write permissions'; ?>
+        <?php echo $saveOk ? 'SUCCESS' : "FAILED - $saveError"; ?>
     </div>
     <?php endif; ?>
     <?php endif; ?>
