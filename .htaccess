@@ -1,0 +1,61 @@
+# Archive Film Club - Root .htaccess
+# For cPanel/Apache deployments
+
+# Enable rewrite engine
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Force HTTPS (uncomment if needed)
+    # RewriteCond %{HTTPS} off
+    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Handle PHP files directly - don't rewrite them
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^.*\.php$ - [L]
+
+    # Handle existing files and directories
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+</IfModule>
+
+# Ensure PHP files are processed
+<IfModule mod_mime.c>
+    AddType application/x-httpd-php .php
+</IfModule>
+
+# Enable CORS for API endpoints
+<IfModule mod_headers.c>
+    <FilesMatch "\.php$">
+        Header set Access-Control-Allow-Origin "*"
+        Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Header set Access-Control-Allow-Headers "Content-Type"
+    </FilesMatch>
+</IfModule>
+
+# Security - Deny access to sensitive files
+<FilesMatch "^\.env$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "^(config\.php|Database\.php)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Deny access to directories
+<IfModule mod_autoindex.c>
+    Options -Indexes
+</IfModule>
+
+# Cache static assets
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+</IfModule>

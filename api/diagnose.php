@@ -1,0 +1,247 @@
+<?php
+/**
+ * Server Diagnostic Script
+ *
+ * Upload this to your server and access it at: https://yourdomain.com/api/diagnose.php
+ * DELETE THIS FILE after diagnosing - it exposes server information!
+ */
+
+header('Content-Type: text/html; charset=utf-8');
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Server Diagnostics - Archive Film Club</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #00d4ff; }
+        h2 { color: #ffd700; margin-top: 30px; }
+        .check { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .pass { background: #1e4d2b; border-left: 4px solid #4caf50; }
+        .fail { background: #4d1e1e; border-left: 4px solid #f44336; }
+        .warn { background: #4d3d1e; border-left: 4px solid #ff9800; }
+        code { background: #333; padding: 2px 6px; border-radius: 3px; font-size: 14px; }
+        pre { background: #333; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .action { background: #1e3d4d; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #00d4ff; }
+    </style>
+</head>
+<body>
+    <h1>Archive Film Club - Server Diagnostics</h1>
+    <p>This script checks your server configuration for the caching system.</p>
+
+    <h2>1. PHP Configuration</h2>
+    <?php
+    $phpVersion = phpversion();
+    $phpOk = version_compare($phpVersion, '7.4', '>=');
+    ?>
+    <div class="check <?php echo $phpOk ? 'pass' : 'fail'; ?>">
+        <strong>PHP Version:</strong> <?php echo $phpVersion; ?>
+        <?php if (!$phpOk): ?><br>Requires PHP 7.4 or higher<?php endif; ?>
+    </div>
+
+    <?php
+    $requiredExtensions = ['pdo', 'pdo_mysql', 'gd', 'json', 'fileinfo'];
+    foreach ($requiredExtensions as $ext):
+        $loaded = extension_loaded($ext);
+    ?>
+    <div class="check <?php echo $loaded ? 'pass' : 'fail'; ?>">
+        <strong><?php echo strtoupper($ext); ?> Extension:</strong> <?php echo $loaded ? 'Loaded' : 'NOT LOADED'; ?>
+    </div>
+    <?php endforeach; ?>
+
+    <h2>2. Directory Structure</h2>
+    <?php
+    $baseDir = dirname(__DIR__);
+    $requiredDirs = [
+        'api' => __DIR__,
+        'db' => $baseDir . '/db',
+        'cache' => $baseDir . '/cache',
+        'services' => $baseDir . '/services',
+        'thumbnails' => $baseDir . '/thumbnails',
+    ];
+
+    foreach ($requiredDirs as $name => $path):
+        $exists = is_dir($path);
+    ?>
+    <div class="check <?php echo $exists ? 'pass' : 'fail'; ?>">
+        <strong>/<?php echo $name; ?>/:</strong>
+        <?php if ($exists): ?>
+            Found at <code><?php echo $path; ?></code>
+        <?php else: ?>
+            NOT FOUND - Expected at <code><?php echo $path; ?></code>
+        <?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+
+    <h2>3. Required PHP Files</h2>
+    <?php
+    $requiredFiles = [
+        'db/Database.php',
+        'db/config.php',
+        'cache/CacheManager.php',
+        'cache/ThumbnailCache.php',
+        'services/LocalStorageService.php',
+        'api/search.php',
+        'api/cache.php',
+        'api/thumbnail.php',
+    ];
+
+    foreach ($requiredFiles as $file):
+        $fullPath = $baseDir . '/' . $file;
+        $exists = file_exists($fullPath);
+    ?>
+    <div class="check <?php echo $exists ? 'pass' : 'fail'; ?>">
+        <strong><?php echo $file; ?>:</strong> <?php echo $exists ? 'Found' : 'NOT FOUND'; ?>
+    </div>
+    <?php endforeach; ?>
+
+    <h2>4. Environment Configuration</h2>
+    <?php
+    $envFile = $baseDir . '/.env';
+    $envExists = file_exists($envFile);
+    ?>
+    <div class="check <?php echo $envExists ? 'pass' : 'fail'; ?>">
+        <strong>.env File:</strong> <?php echo $envExists ? 'Found' : 'NOT FOUND'; ?>
+        <?php if (!$envExists): ?>
+        <br><small>Copy <code>.env.example</code> to <code>.env</code> and configure your database credentials</small>
+        <?php endif; ?>
+    </div>
+
+    <?php if ($envExists): ?>
+    <h2>5. Database Connection</h2>
+    <?php
+    try {
+        require_once $baseDir . '/db/Database.php';
+        $db = Database::getInstance();
+        $config = $db->getConfig();
+
+        // Test connection
+        $result = $db->fetchOne("SELECT 1 as test");
+        $connected = ($result && $result['test'] == 1);
+        ?>
+        <div class="check pass">
+            <strong>Database Connection:</strong> SUCCESS
+            <br><small>Connected to: <?php echo $config['database']; ?></small>
+        </div>
+
+        <?php
+        // Check tables
+        $tables = ['search_cache', 'video_metadata_cache', 'thumbnail_cache', 'cache_queue'];
+        foreach ($tables as $table):
+            try {
+                $exists = $db->fetchOne("SHOW TABLES LIKE ?", [$table]);
+                $tableExists = !empty($exists);
+            } catch (Exception $e) {
+                $tableExists = false;
+            }
+        ?>
+        <div class="check <?php echo $tableExists ? 'pass' : 'fail'; ?>">
+            <strong>Table '<?php echo $table; ?>':</strong> <?php echo $tableExists ? 'Exists' : 'NOT FOUND - Run migrations'; ?>
+        </div>
+        <?php endforeach; ?>
+
+    <?php
+    } catch (Exception $e) {
+        ?>
+        <div class="check fail">
+            <strong>Database Connection:</strong> FAILED
+            <br><small>Error: <?php echo htmlspecialchars($e->getMessage()); ?></small>
+        </div>
+        <?php
+    }
+    endif;
+    ?>
+
+    <h2>6. Thumbnail Directory Permissions</h2>
+    <?php
+    $thumbDir = $baseDir . '/thumbnails';
+    $thumbDirExists = is_dir($thumbDir);
+    $thumbDirWritable = $thumbDirExists && is_writable($thumbDir);
+    ?>
+    <div class="check <?php echo $thumbDirWritable ? 'pass' : ($thumbDirExists ? 'warn' : 'fail'); ?>">
+        <strong>Thumbnails Directory:</strong>
+        <?php if (!$thumbDirExists): ?>
+            NOT FOUND
+        <?php elseif (!$thumbDirWritable): ?>
+            EXISTS but NOT WRITABLE
+        <?php else: ?>
+            OK (writable)
+        <?php endif; ?>
+    </div>
+
+    <?php if (!$thumbDirWritable && $thumbDirExists): ?>
+    <div class="action">
+        <strong>Action Required:</strong> Set permissions on thumbnails directory:
+        <pre>chmod 755 <?php echo $thumbDir; ?></pre>
+        Or via cPanel File Manager: Right-click thumbnails folder → Change Permissions → Set to 755
+    </div>
+    <?php endif; ?>
+
+    <h2>7. Test Thumbnail Download</h2>
+    <?php
+    if ($thumbDirWritable):
+        $testUrl = 'https://archive.org/services/img/night_of_the_living_dead';
+        $context = stream_context_create([
+            'http' => ['timeout' => 10, 'user_agent' => 'Mozilla/5.0'],
+            'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+        ]);
+
+        $testData = @file_get_contents($testUrl, false, $context);
+        $downloadOk = ($testData !== false && strlen($testData) > 100);
+    ?>
+    <div class="check <?php echo $downloadOk ? 'pass' : 'fail'; ?>">
+        <strong>Download from Archive.org:</strong>
+        <?php echo $downloadOk ? 'SUCCESS (' . strlen($testData) . ' bytes)' : 'FAILED'; ?>
+    </div>
+
+    <?php if ($downloadOk):
+        $testPath = $thumbDir . '/test_diagnostic.jpg';
+        $image = @imagecreatefromstring($testData);
+        $saveOk = false;
+        if ($image) {
+            $saveOk = @imagejpeg($image, $testPath, 85);
+            imagedestroy($image);
+            if ($saveOk) {
+                @unlink($testPath); // Clean up
+            }
+        }
+    ?>
+    <div class="check <?php echo $saveOk ? 'pass' : 'fail'; ?>">
+        <strong>Save Thumbnail File:</strong>
+        <?php echo $saveOk ? 'SUCCESS' : 'FAILED - Check GD library and write permissions'; ?>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
+
+    <h2>8. Current Paths</h2>
+    <pre>
+Document Root: <?php echo $_SERVER['DOCUMENT_ROOT']; ?>
+
+Script Path: <?php echo __FILE__; ?>
+
+Base Directory: <?php echo $baseDir; ?>
+
+Thumbnails Path: <?php echo $thumbDir; ?>
+    </pre>
+
+    <h2>Summary</h2>
+    <div class="action">
+        <strong>If you see 404 errors for /api/* endpoints:</strong>
+        <ol>
+            <li>Verify the <code>api/</code> folder was uploaded to your server</li>
+            <li>Check that files are in the correct location relative to your domain root</li>
+            <li>For <code>https://sethmorrow.com/api/search.php</code>, files should be at:<br>
+                <code>public_html/api/search.php</code> (or similar based on your cPanel setup)</li>
+            <li>Ensure all PHP files and folders (api, db, cache, services) are uploaded</li>
+        </ol>
+    </div>
+
+    <div class="action">
+        <strong style="color: #f44336;">DELETE THIS FILE</strong> after diagnosing - it exposes server information!
+    </div>
+
+    <p style="margin-top: 40px; color: #888; font-size: 12px;">
+        Generated: <?php echo date('Y-m-d H:i:s'); ?> | PHP <?php echo phpversion(); ?>
+    </p>
+</body>
+</html>
