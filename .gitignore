@@ -30,3 +30,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Node / Electron
+node_modules/
+electron/data/
