@@ -1,0 +1,16 @@
+{
+  "name": "archive-film-club",
+  "version": "1.0.0",
+  "description": "Archive Film Club - Discover classic films from Archive.org",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "dependencies": {
+    "electron": "^33.0.0",
+    "express": "^4.21.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {}
+}
