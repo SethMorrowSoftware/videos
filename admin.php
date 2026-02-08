@@ -1856,7 +1856,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
                 const thumb = `https://archive.org/services/img/${id}`;
 
                 return `
-                    <div class="video-card ${isSelected ? 'selected' : ''}" onclick="toggleVideo('${id}', '${escapeHtml(title)}', '${escapeHtml(creator)}')">
+                    <div class="video-card ${isSelected ? 'selected' : ''}" data-id="${escapeAttribute(id)}" data-title="${escapeAttribute(title)}" data-creator="${escapeAttribute(creator)}">
                         <div class="video-card-thumb">
                             <img src="${thumb}" alt="${escapeHtml(title)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22><rect fill=%22%23242428%22 width=%2216%22 height=%229%22/><text x=%228%22 y=%225%22 fill=%22%2371717a%22 text-anchor=%22middle%22 font-size=%222%22>🎬</text></svg>'">
                             ${isSelected ? '<div class="video-card-badge"><span>✓</span> Added</div>' : ''}
@@ -1868,6 +1868,12 @@ if (empty($featured_sections) && file_exists($sections_file)) {
                     </div>
                 `;
             }).join('') + '</div>';
+
+            resultsDiv.querySelectorAll('.video-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    toggleVideo(card.dataset.id, card.dataset.title, card.dataset.creator);
+                });
+            });
         }
 
         // Render pagination
@@ -1903,11 +1909,8 @@ if (empty($featured_sections) && file_exists($sections_file)) {
 
         function updateSearchCards() {
             document.querySelectorAll('.video-card').forEach(card => {
-                const onclick = card.getAttribute('onclick');
-                if (!onclick) return;
-                const match = onclick.match(/toggleVideo\('([^']+)'/);
-                if (!match) return;
-                const cardId = match[1];
+                const cardId = card.dataset.id;
+                if (!cardId) return;
                 const isSelected = selectedVideos.some(v => v.id === cardId);
                 card.classList.toggle('selected', isSelected);
 
@@ -2462,7 +2465,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
                 const thumb = `https://archive.org/services/img/${id}`;
 
                 return `
-                    <div class="video-card ${isSelected ? 'selected' : ''}" onclick="toggleVideoForSection('${sectionId}', '${id}', '${escapeHtml(title)}', '${escapeHtml(creator)}')">
+                    <div class="video-card ${isSelected ? 'selected' : ''}" data-id="${escapeAttribute(id)}" data-title="${escapeAttribute(title)}" data-creator="${escapeAttribute(creator)}">
                         <div class="video-card-thumb">
                             <img src="${thumb}" alt="${escapeHtml(title)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22><rect fill=%22%23242428%22 width=%2216%22 height=%229%22/><text x=%228%22 y=%225%22 fill=%22%2371717a%22 text-anchor=%22middle%22 font-size=%222%22>🎬</text></svg>'">
                             ${isSelected ? '<div class="video-card-badge"><span>✓</span> Added</div>' : ''}
@@ -2474,6 +2477,12 @@ if (empty($featured_sections) && file_exists($sections_file)) {
                     </div>
                 `;
             }).join('') + '</div>';
+
+            resultsDiv.querySelectorAll('.video-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    toggleVideoForSection(sectionId, card.dataset.id, card.dataset.title, card.dataset.creator);
+                });
+            });
         }
 
         function toggleVideoForSection(sectionId, videoId, title, creator) {
@@ -2491,17 +2500,15 @@ if (empty($featured_sections) && file_exists($sections_file)) {
             // Update the modal view
             const cards = document.querySelectorAll('#modalSearchResults .video-card');
             cards.forEach(card => {
-                const onclick = card.getAttribute('onclick');
-                if (onclick && onclick.includes(`'${videoId}'`)) {
-                    const isSelected = section.videos.some(v => v.id === videoId);
-                    card.classList.toggle('selected', isSelected);
+                if (card.dataset.id !== videoId) return;
+                const isSelected = section.videos.some(v => v.id === videoId);
+                card.classList.toggle('selected', isSelected);
 
-                    const badge = card.querySelector('.video-card-badge');
-                    if (isSelected && !badge) {
-                        card.querySelector('.video-card-thumb').insertAdjacentHTML('beforeend', '<div class="video-card-badge"><span>✓</span> Added</div>');
-                    } else if (!isSelected && badge) {
-                        badge.remove();
-                    }
+                const badge = card.querySelector('.video-card-badge');
+                if (isSelected && !badge) {
+                    card.querySelector('.video-card-thumb').insertAdjacentHTML('beforeend', '<div class="video-card-badge"><span>✓</span> Added</div>');
+                } else if (!isSelected && badge) {
+                    badge.remove();
                 }
             });
 
@@ -2566,6 +2573,10 @@ if (empty($featured_sections) && file_exists($sections_file)) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function escapeAttribute(text) {
+            return escapeHtml(text).replace(/"/g, '&quot;');
         }
     </script>
     <?php endif; ?>

@@ -32,7 +32,7 @@ export class FeaturedSectionsManager {
     }
 
     // Filter enabled sections
-    const enabledSections = this.config.sections.filter(s => s.enabled);
+    const enabledSections = this.config.sections.filter(s => s.enabled !== false);
     if (enabledSections.length === 0) {
       return;
     }
@@ -55,12 +55,19 @@ export class FeaturedSectionsManager {
 
   async loadVideosForSection(section) {
     const videoPromises = section.videos.map(async (item) => {
+      const fallbackVideo = {
+        identifier: item.id,
+        title: item.title || 'Untitled',
+        creator: item.creator || 'Unknown',
+        adminNote: item.note
+      };
+
       try {
         const response = await fetch(`https://archive.org/metadata/${item.id}`);
-        if (!response.ok) return null;
+        if (!response.ok) return fallbackVideo;
 
         const data = await response.json();
-        if (!data.metadata) return null;
+        if (!data.metadata) return fallbackVideo;
 
         return {
           ...data.metadata,
@@ -69,12 +76,12 @@ export class FeaturedSectionsManager {
         };
       } catch (e) {
         console.warn(`Failed to load video: ${item.id}`, e);
-        return null;
+        return fallbackVideo;
       }
     });
 
     const results = await Promise.all(videoPromises);
-    return results.filter(v => v !== null);
+    return results.filter(v => v && v.identifier);
   }
 
   render() {
