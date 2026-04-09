@@ -721,6 +721,15 @@ class CacheManager {
      * Get cache hit rate from API usage log
      */
     public function getHitRate(string $period = '24 hours'): array {
+        // Whitelist allowed period values to prevent SQL injection
+        $allowedPeriods = [
+            '1 hour', '6 hours', '12 hours', '24 hours',
+            '48 hours', '7 days', '30 days'
+        ];
+        if (!in_array($period, $allowedPeriods, true)) {
+            $period = '24 hours';
+        }
+
         return $this->db->fetchAll(
             "SELECT
                 endpoint,
@@ -729,7 +738,7 @@ class CacheManager {
                 ROUND(AVG(response_time_ms), 2) as avg_response_time,
                 ROUND(SUM(cache_hit) / COUNT(*) * 100, 2) as hit_rate
              FROM api_usage_log
-             WHERE created_at > DATE_SUB(NOW(), INTERVAL $period)
+             WHERE created_at > DATE_SUB(NOW(), INTERVAL {$period})
              GROUP BY endpoint"
         );
     }

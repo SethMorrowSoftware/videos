@@ -200,11 +200,11 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <!-- Player Header -->
   <header class="player-header" id="playerHeader">
     <div class="player-header-content">
-      <a href="index.php" class="player-back-btn" title="Back to search">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <a href="index.php" class="player-back-btn" title="Back to search" aria-label="Back to search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M19 12H5M5 12L12 19M5 12L12 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span class="player-back-text">Back</span>
+        <span class="player-back-text">Back to search</span>
       </a>
 
       <a href="index.php" class="player-logo" title="Go to homepage">
@@ -218,8 +218,8 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       </a>
 
       <div class="player-header-actions">
-        <button id="bookmarkBtn" class="player-action-btn" title="Bookmark">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <button id="bookmarkBtn" class="player-action-btn" title="Bookmark" aria-label="Bookmark this video">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M5 5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L12 17.5L5 21V5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
@@ -249,8 +249,8 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <main class="player-main">
     <div class="player-cinema" id="playerCinema">
       <div id="videoWrapper" class="player-video-wrapper">
-        <div id="playerLoader" class="player-loader">
-          <div class="loading-spinner">
+        <div id="playerLoader" class="player-loader" role="status" aria-busy="true">
+          <div class="loading-spinner" aria-hidden="true">
             <div class="spinner-ring"></div>
           </div>
           <span class="loading-text">Loading video...</span>
@@ -260,11 +260,11 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       <!-- Controls Overlay Bar (bottom of cinema) -->
       <div class="player-controls-bar" id="controlsBar">
         <div class="controls-bar-left">
-          <button id="prevEpisodeBtn" class="pctl-btn" title="Previous episode (Shift+P)" style="display:none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          <button id="prevEpisodeBtn" class="pctl-btn" title="Previous episode (Shift+P)" aria-label="Previous episode" style="display:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
           </button>
-          <button id="nextEpisodeBtn" class="pctl-btn" title="Next episode (Shift+N)" style="display:none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 18h2V6h-2zM6 18l8.5-6L6 6z"/></svg>
+          <button id="nextEpisodeBtn" class="pctl-btn" title="Next episode (Shift+N)" aria-label="Next episode" style="display:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 18h2V6h-2zM6 18l8.5-6L6 6z"/></svg>
           </button>
           <span id="episodeIndicator" class="episode-indicator" style="display:none;"></span>
         </div>
@@ -276,7 +276,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             </button>
             <div id="qualityMenu" class="quality-menu"></div>
           </div>
-          <button id="theaterModeBtn" class="pctl-btn" title="Theater mode (t)">
+          <button id="theaterModeBtn" class="pctl-btn" title="Theater mode (t)" aria-label="Toggle theater mode">
             <svg class="theater-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7V5C3 3.89543 3.89543 3 5 3H7M17 3H19C20.1046 3 21 3.89543 21 5V7M21 17V19C21 20.1046 20.1046 21 19 21H17M7 21H5C3.89543 21 3 20.1046 3 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <svg class="theater-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3V5C8 6.10457 7.10457 7 6 7H4M20 7H18C16.8954 7 16 6.10457 16 5V3M16 21V19C16 17.8954 16.8954 17 18 17H20M4 17H6C7.10457 17 8 17.8954 8 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
@@ -356,12 +356,12 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   </main>
 
   <!-- Resume Prompt (non-blocking) -->
-  <div id="resumePrompt" class="resume-prompt" style="display: none;">
+  <div id="resumePrompt" class="resume-prompt" role="dialog" aria-label="Resume playback" style="display: none;">
     <div class="resume-prompt-content">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 6V12L16 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 6V12L16 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/></svg>
       <span id="resumeText">Resume from 0:00?</span>
       <button id="resumeBtn" class="resume-btn">Resume</button>
-      <button id="resumeDismiss" class="resume-dismiss">&times;</button>
+      <button id="resumeDismiss" class="resume-dismiss" aria-label="Dismiss">&times;</button>
     </div>
   </div>
 

@@ -1,10 +1,10 @@
 /**
  * Service Worker for Comet Cult Film Club
- * Version: ALPHA-1.0.0
+ * Version: 1.0.0
  * Features: Offline support, intelligent caching, background sync
  */
 
-const CACHE_VERSION = 'ccfc-alpha-v1';
+const CACHE_VERSION = 'ccfc-v1';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -210,7 +210,7 @@ async function handleStaleWhileRevalidate(request, ttl) {
       if (networkResponse.ok) {
         caches.open(DYNAMIC_CACHE).then(cache => {
           cache.put(request, networkResponse.clone());
-        });
+        }).catch(err => console.warn('[SW] Cache put failed:', err));
       }
       return networkResponse;
     })
@@ -473,10 +473,14 @@ self.addEventListener('message', event => {
         caches.keys()
           .then(names => Promise.all(names.map(name => caches.delete(name))))
           .then(() => {
-            event.ports[0].postMessage({ success: true });
+            if (event.ports && event.ports[0]) {
+              event.ports[0].postMessage({ success: true });
+            }
           })
           .catch(error => {
-            event.ports[0].postMessage({ success: false, error: error.message });
+            if (event.ports && event.ports[0]) {
+              event.ports[0].postMessage({ success: false, error: error.message });
+            }
           })
       );
       break;
@@ -488,10 +492,14 @@ self.addEventListener('message', event => {
           caches.open(DYNAMIC_CACHE)
             .then(cache => cache.add(data.url))
             .then(() => {
-              event.ports[0].postMessage({ success: true });
+              if (event.ports && event.ports[0]) {
+                event.ports[0].postMessage({ success: true });
+              }
             })
             .catch(error => {
-              event.ports[0].postMessage({ success: false, error: error.message });
+              if (event.ports && event.ports[0]) {
+                event.ports[0].postMessage({ success: false, error: error.message });
+              }
             })
         );
       }
@@ -501,7 +509,14 @@ self.addEventListener('message', event => {
       event.waitUntil(
         getCacheSize()
           .then(size => {
-            event.ports[0].postMessage({ size });
+            if (event.ports && event.ports[0]) {
+              event.ports[0].postMessage({ size });
+            }
+          })
+          .catch(error => {
+            if (event.ports && event.ports[0]) {
+              event.ports[0].postMessage({ size: 0 });
+            }
           })
       );
       break;

@@ -8,9 +8,11 @@
  * DELETE THIS FILE AFTER RUNNING!
  */
 
-// Basic security - only allow from browser with visual confirmation
-if (php_sapi_name() === 'cli') {
-    die("Please run this script from your web browser.\n");
+// Security: require admin authentication
+session_start();
+if (empty($_SESSION['admin_logged_in'])) {
+    http_response_code(403);
+    die('Access denied. Please log in as admin first at <a href="admin.php">admin.php</a>');
 }
 
 require_once __DIR__ . '/db/Database.php';

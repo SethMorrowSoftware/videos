@@ -384,8 +384,8 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       <!-- Featured Sections Container -->
       <div id="featuredSectionsContainer"></div>
 
-      <div id="loading" class="loading" hidden>
-        <div class="loading-spinner">
+      <div id="loading" class="loading" role="status" aria-busy="true" hidden>
+        <div class="loading-spinner" aria-hidden="true">
           <div class="spinner-ring"></div>
         </div>
         <span class="loading-text">Searching archive...</span>

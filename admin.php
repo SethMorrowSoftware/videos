@@ -36,8 +36,8 @@ try {
     error_log("Admin: Database not available, using JSON fallback: " . $e->getMessage());
 }
 
-// Fallback password for JSON mode (legacy support)
-$ADMIN_PASSWORD = 'filmclub2024';
+// Fallback password from environment variable (never hardcode credentials)
+$ADMIN_PASSWORD = getenv('ADMIN_PASSWORD') ?: null;
 
 // Handle login
 $login_error = '';
@@ -56,7 +56,8 @@ if (isset($_POST['password']) || (isset($_POST['username']) && isset($_POST['pas
         }
     } else {
         // Legacy JSON/password authentication
-        if ($_POST['password'] === $ADMIN_PASSWORD) {
+        if ($ADMIN_PASSWORD && hash_equals($ADMIN_PASSWORD, $_POST['password'])) {
+            session_regenerate_id(true);
             $_SESSION['admin_logged_in'] = true;
         } else {
             $login_error = 'Invalid password';
@@ -178,7 +179,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Admin Panel - <?= htmlspecialchars($site_settings['siteName'] ?? 'Archive Film Club') ?></title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -1723,8 +1724,8 @@ if (empty($featured_sections) && file_exists($sections_file)) {
                 <p class="login-subtitle"><?= htmlspecialchars($site_settings['siteName'] ?? 'Archive Film Club') ?></p>
             </div>
             <?php if (!empty($login_error)): ?>
-            <div class="login-error">
-                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            <div class="login-error" role="alert" aria-live="polite">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
                 <?= htmlspecialchars($login_error) ?>
             </div>
             <?php endif; ?>

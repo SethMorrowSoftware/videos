@@ -12,8 +12,8 @@
 $envFile = __DIR__ . '/.env';
 $lockFile = __DIR__ . '/.installed';
 
-// Prevent re-running if already installed
-if (file_exists($lockFile) && !isset($_GET['force'])) {
+// Prevent re-running if already installed (no bypass allowed)
+if (file_exists($lockFile)) {
     die('
     <html>
     <head><title>Already Installed</title></head>

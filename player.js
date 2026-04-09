@@ -394,11 +394,13 @@ class VideoPlayer {
       this.currentFileName = filename;
       this.setupVideoListeners(videoData.videoElement);
 
-      // Restore position
-      videoData.videoElement.addEventListener('loadedmetadata', () => {
-        videoData.videoElement.currentTime = currentTime;
-        if (!wasPaused) videoData.videoElement.play();
-      }, { once: true });
+      // Restore position after quality switch
+      if (videoData.videoElement) {
+        videoData.videoElement.addEventListener('loadedmetadata', () => {
+          videoData.videoElement.currentTime = currentTime;
+          if (!wasPaused) videoData.videoElement.play();
+        }, { once: true });
+      }
 
       // Update quality UI
       this.ui.buildQualityOptions(this.allVideoFiles, filename, (fn) => {

@@ -76,8 +76,9 @@ export class PlayerUI {
       this.toggleQualityMenu();
     });
 
-    // Close menu on outside click
-    document.addEventListener('click', () => this.closeQualityMenu());
+    // Close menu on outside click (store reference for potential cleanup)
+    this._closeQualityMenuHandler = () => this.closeQualityMenu();
+    document.addEventListener('click', this._closeQualityMenuHandler);
     this.qualityMenu.addEventListener('click', (e) => e.stopPropagation());
   }
 

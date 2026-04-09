@@ -183,10 +183,6 @@
 
 .player-page.theater-mode .player-header:hover {
   opacity: 1;
-  pointer-events: none;
-}
-
-.player-page.theater-mode .player-header:hover * {
   pointer-events: auto;
 }
 

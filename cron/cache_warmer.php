@@ -6,15 +6,10 @@
  * cPanel: Add to Cron Jobs with: php /home/yourusername/public_html/videos/cron/cache_warmer.php
  */
 
-// Prevent web access
-if (php_sapi_name() !== 'cli' && !isset($_GET['key'])) {
-    die('This script must be run from the command line or with a valid key');
-}
-
-// Optional: Add a secret key for web-based execution
-$secretKey = 'your-secret-cron-key-here';
-if (isset($_GET['key']) && $_GET['key'] !== $secretKey) {
-    die('Invalid key');
+// Prevent web access - CLI only for security
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    die('This script must be run from the command line');
 }
 
 require_once __DIR__ . '/../services/ArchiveOrgService.php';
