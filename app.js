@@ -282,9 +282,7 @@ class ArchiveVideoSearch {
     const prefs = {
       collection: this.collection?.value,
       sortBy: this.sortBy?.value,
-      volume: this.videoService.getVideoControls()?.video?.volume || 1,
       lastSearch: this.searchInput?.value,
-      theaterMode: this.playerContainer?.classList.contains('theater-mode'),
       timestamp: Date.now()
     };
     try {
@@ -381,7 +379,7 @@ class ArchiveVideoSearch {
       let playerUrl = `player.php?video=${encodeURIComponent(urlState.videoId)}`;
       if (urlState.track !== null) playerUrl += `&track=${urlState.track + 1}`;
       if (urlState.timestamp) playerUrl += `&t=${urlState.timestamp}`;
-      window.location.href = playerUrl;
+      window.location.replace(playerUrl);
       return;
     }
 
@@ -680,7 +678,8 @@ class ArchiveVideoSearch {
   // ========================================
 
   shareVideo(id) {
-    const link = `${window.location.origin}/player.php?video=${encodeURIComponent(id)}`;
+    const basePath = window.location.pathname.replace(/\/[^/]*$/, '/');
+    const link = `${window.location.origin}${basePath}player.php?video=${encodeURIComponent(id)}`;
 
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(link)
