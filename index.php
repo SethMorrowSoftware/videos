@@ -384,32 +384,6 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       <!-- Featured Sections Container -->
       <div id="featuredSectionsContainer"></div>
 
-      <div id="playerContainer" class="player" aria-hidden="true">
-        <div class="player-controls">
-          <button id="playPauseBtn" class="play-pause-btn" aria-label="Play/Pause">
-            <svg class="play-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M5 3L19 12L5 21V3Z" fill="currentColor"/>
-            </svg>
-            <svg class="pause-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none;">
-              <path d="M6 4H10V20H6V4ZM14 4H18V20H14V4Z" fill="currentColor"/>
-            </svg>
-          </button>
-          <div class="player-info">
-            <h2 id="playerTitle">No video selected</h2>
-            <p id="playerMeta">Select a video to start playing</p>
-          </div>
-        </div>
-        <div class="video-wrapper">
-          <div class="player-loader" style="display: none;">
-            <div class="loading-spinner">
-              <div class="spinner-ring"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="playerInfo" class="player-info-container"></div>
-
       <div id="loading" class="loading" hidden>
         <div class="loading-spinner">
           <div class="spinner-ring"></div>

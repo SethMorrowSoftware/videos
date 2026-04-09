@@ -199,14 +199,11 @@ export class FeaturedSectionsManager {
 
   attachEventListeners(grid, section) {
     grid.querySelectorAll('.featured-card').forEach(card => {
-      card.addEventListener('click', async (e) => {
+      card.addEventListener('click', (e) => {
         if (e.target.closest('a')) return;
 
         const id = card.dataset.identifier;
-        const title = card.querySelector('.featured-card-title').textContent;
-        const creator = card.querySelector('.featured-card-creator')?.textContent || 'Unknown';
-
-        await this.app.playVideo(id, title, creator);
+        this.app.navigateToPlayer(id);
       });
     });
   }

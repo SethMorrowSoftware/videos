@@ -85,16 +85,13 @@ export class RecommendedManager {
     // Add scroll buttons
     this.addScrollButtons();
 
-    // Attach event listeners
+    // Attach event listeners - navigate to dedicated player page
     this.grid.querySelectorAll('.recommended-card').forEach(card => {
-      card.addEventListener('click', async (e) => {
+      card.addEventListener('click', (e) => {
         if (e.target.closest('a')) return;
 
         const id = card.dataset.identifier;
-        const title = card.querySelector('.recommended-card-title').textContent;
-        const creator = card.querySelector('.recommended-card-creator')?.textContent || 'Unknown';
-
-        await this.app.playVideo(id, title, creator);
+        this.app.navigateToPlayer(id);
       });
     });
   }

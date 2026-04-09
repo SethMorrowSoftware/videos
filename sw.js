@@ -14,7 +14,9 @@ const STATIC_ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './player-styles.css',
   './app.js',
+  './player.js',
   './manifest.json',
   'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap'
 ];
