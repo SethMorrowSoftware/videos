@@ -1,7 +1,7 @@
 <?php
 /**
  * Archive Film Club - Dedicated Video Player Page
- * Separate player experience with rich metadata display
+ * Immersive cinema-like player with rich playlist support
  */
 
 // Default settings
@@ -198,7 +198,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
 <body class="player-page">
 
   <!-- Player Header -->
-  <header class="player-header">
+  <header class="player-header" id="playerHeader">
     <div class="player-header-content">
       <a href="index.php" class="player-back-btn" title="Back to search">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -218,12 +218,6 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       </a>
 
       <div class="player-header-actions">
-        <button id="shareBtn" class="player-action-btn" title="Share video">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M10 13C10.4295 13.5741 10.9774 14.0491 11.6066 14.3929C12.2357 14.7367 12.9315 14.9411 13.6467 14.9923C14.3618 15.0435 15.0796 14.9403 15.7513 14.6897C16.4231 14.4392 17.0331 14.047 17.5355 13.5355L20.5355 10.5355C21.4732 9.55821 21.9928 8.25023 21.9785 6.89326C21.9641 5.53629 21.4169 4.23969 20.4586 3.28137C19.5003 2.32306 18.2037 1.77587 16.8467 1.76154C15.4897 1.74721 14.1818 2.26678 13.2045 3.20447L11.6364 4.77259" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M14 11C13.5705 10.4259 13.0226 9.95083 12.3934 9.60706C11.7643 9.26329 11.0685 9.05888 10.3533 9.00766C9.63816 8.95644 8.92037 9.05966 8.24861 9.3102C7.57685 9.56074 6.96684 9.95296 6.46447 10.4645L3.46447 13.4645C2.52678 14.4418 2.00721 15.7498 2.02154 17.1067C2.03587 18.4637 2.58306 19.7603 3.54137 20.7186C4.49969 21.6769 5.79629 22.2241 7.15326 22.2385C8.51023 22.2528 9.81821 21.7332 10.7955 20.7955L12.3536 19.2274" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
         <button id="bookmarkBtn" class="player-action-btn" title="Bookmark">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M5 5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L12 17.5L5 21V5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -251,22 +245,50 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
     </div>
   </header>
 
-  <!-- Video Player Area -->
+  <!-- Cinema Area -->
   <main class="player-main">
-    <div class="player-cinema">
-      <div class="player-video-container">
-        <div id="videoWrapper" class="player-video-wrapper">
-          <div id="playerLoader" class="player-loader">
-            <div class="loading-spinner">
-              <div class="spinner-ring"></div>
-            </div>
-            <span class="loading-text">Loading video...</span>
+    <div class="player-cinema" id="playerCinema">
+      <div id="videoWrapper" class="player-video-wrapper">
+        <div id="playerLoader" class="player-loader">
+          <div class="loading-spinner">
+            <div class="spinner-ring"></div>
           </div>
+          <span class="loading-text">Loading video...</span>
+        </div>
+      </div>
+
+      <!-- Controls Overlay Bar (bottom of cinema) -->
+      <div class="player-controls-bar" id="controlsBar">
+        <div class="controls-bar-left">
+          <button id="prevEpisodeBtn" class="pctl-btn" title="Previous episode (Shift+P)" style="display:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          </button>
+          <button id="nextEpisodeBtn" class="pctl-btn" title="Next episode (Shift+N)" style="display:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 18h2V6h-2zM6 18l8.5-6L6 6z"/></svg>
+          </button>
+          <span id="episodeIndicator" class="episode-indicator" style="display:none;"></span>
+        </div>
+        <div class="controls-bar-right">
+          <div id="qualitySelector" class="quality-selector" style="display:none;">
+            <button id="qualityBtn" class="pctl-btn quality-btn" title="Video quality">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 15V17M12 7V13M8 3H16L21 8V16L16 21H8L3 16V8L8 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span id="qualityLabel" class="quality-label">HD</span>
+            </button>
+            <div id="qualityMenu" class="quality-menu"></div>
+          </div>
+          <button id="theaterModeBtn" class="pctl-btn" title="Theater mode (t)">
+            <svg class="theater-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7V5C3 3.89543 3.89543 3 5 3H7M17 3H19C20.1046 3 21 3.89543 21 5V7M21 17V19C21 20.1046 20.1046 21 19 21H17M7 21H5C3.89543 21 3 20.1046 3 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <svg class="theater-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3V5C8 6.10457 7.10457 7 6 7H4M20 7H18C16.8954 7 16 6.10457 16 5V3M16 21V19C16 17.8954 16.8954 17 18 17H20M4 17H6C7.10457 17 8 17.8954 8 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
         </div>
       </div>
     </div>
 
-    <div class="player-content">
+    <!-- Keyboard Shortcut Indicator -->
+    <div id="shortcutIndicator" class="shortcut-indicator" aria-hidden="true"></div>
+
+    <!-- Content Below Video -->
+    <div class="player-content" id="playerContent">
       <div class="player-content-main">
         <!-- Video Info -->
         <section id="videoInfo" class="player-video-info">
@@ -280,7 +302,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M18 13V19C18 20.1046 17.1046 21 16 21H5C3.89543 21 3 20.1046 3 19V8C3 6.89543 3.89543 6 5 6H11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 3H21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Archive.org
             </a>
-            <button id="shareBtn2" class="player-pill-btn">
+            <button id="shareBtn" class="player-pill-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 12V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="16 6 12 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Share
             </button>
@@ -312,16 +334,36 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
         </section>
       </div>
 
-      <!-- Sidebar: Playlist or Related -->
+      <!-- Sidebar: Playlist -->
       <aside id="playlistSidebar" class="player-sidebar" style="display: none;">
         <div class="player-sidebar-header">
-          <h3 id="playlistTitle">Episodes</h3>
-          <span id="playlistCount" class="player-sidebar-count"></span>
+          <div class="sidebar-header-info">
+            <h3 id="playlistTitle">Episodes</h3>
+            <span id="playlistCount" class="player-sidebar-count"></span>
+          </div>
+          <div class="sidebar-header-nav">
+            <button id="sidebarPrevBtn" class="sidebar-nav-btn" disabled title="Previous episode">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button id="sidebarNextBtn" class="sidebar-nav-btn" disabled title="Next episode">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
         </div>
         <div id="playlistItems" class="player-sidebar-items"></div>
       </aside>
     </div>
   </main>
+
+  <!-- Resume Prompt (non-blocking) -->
+  <div id="resumePrompt" class="resume-prompt" style="display: none;">
+    <div class="resume-prompt-content">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 6V12L16 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/></svg>
+      <span id="resumeText">Resume from 0:00?</span>
+      <button id="resumeBtn" class="resume-btn">Resume</button>
+      <button id="resumeDismiss" class="resume-dismiss">&times;</button>
+    </div>
+  </div>
 
   <!-- Site Settings -->
   <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings) ?></script>
