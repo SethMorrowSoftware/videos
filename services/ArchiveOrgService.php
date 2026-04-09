@@ -333,8 +333,9 @@ class ArchiveOrgService {
             $normalized['collection'] = $collection;
         }
 
-        // Add media type filter for videos
-        $normalized['mediatype'] = 'movies';
+        // Note: mediatype filtering is handled by the frontend query builder
+        // (SearchService.buildSearchQuery) which constructs OR clauses to include
+        // both video types and collections. Do not override it here.
 
         return $normalized;
     }
