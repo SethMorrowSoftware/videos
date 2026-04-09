@@ -71,7 +71,8 @@ export class SearchSuggestions {
 
     this.dropdown.querySelectorAll('.suggestion-item').forEach(item => {
       item.addEventListener('click', () => {
-        this.selectSuggestion(parseInt(item.dataset.index));
+        const idx = parseInt(item.dataset.index, 10);
+        if (!isNaN(idx)) this.selectSuggestion(idx);
       });
     });
   }

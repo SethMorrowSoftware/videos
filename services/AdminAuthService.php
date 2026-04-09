@@ -150,6 +150,9 @@ class AdminAuthService {
             session_start();
         }
 
+        // Regenerate session ID to prevent session fixation attacks
+        session_regenerate_id(true);
+
         $_SESSION['admin_user_id'] = $user['id'];
         $_SESSION['admin_username'] = $user['username'];
         $_SESSION['admin_role'] = $user['role'];

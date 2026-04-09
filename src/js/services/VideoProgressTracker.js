@@ -38,7 +38,8 @@ export class VideoProgressTracker {
     let cleaned = false;
 
     Object.keys(this.progress).forEach(id => {
-      if (this.progress[id].timestamp < cutoff) {
+      const entry = this.progress[id];
+      if (!entry || !entry.timestamp || entry.timestamp < cutoff) {
         delete this.progress[id];
         cleaned = true;
       }

@@ -10,6 +10,12 @@
  * */5 * * * * php /path/to/videos/cron/process_cache_queue.php >> /path/to/logs/cache_queue.log 2>&1
  */
 
+// Prevent web access - CLI only for security
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    die('This script must be run from the command line');
+}
+
 // Change to the script's directory
 chdir(__DIR__ . '/..');
 

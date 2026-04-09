@@ -5,9 +5,9 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Force HTTPS (uncomment if needed)
-    # RewriteCond %{HTTPS} off
-    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    # Force HTTPS in production
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
     # Handle PHP files directly - don't rewrite them
     RewriteCond %{REQUEST_FILENAME} -f
@@ -24,22 +24,33 @@
     AddType application/x-httpd-php .php
 </IfModule>
 
-# Enable CORS for API endpoints
+# Security headers
 <IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # CORS for API endpoints - restrict to same origin by default
     <FilesMatch "\.php$">
-        Header set Access-Control-Allow-Origin "*"
         Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
         Header set Access-Control-Allow-Headers "Content-Type"
     </FilesMatch>
 </IfModule>
 
 # Security - Deny access to sensitive files
-<FilesMatch "^\.env$">
+<FilesMatch "^\.env">
     Order allow,deny
     Deny from all
 </FilesMatch>
 
 <FilesMatch "^(config\.php|Database\.php)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block direct web access to upgrade script
+<FilesMatch "^upgrade_cache\.php$">
     Order allow,deny
     Deny from all
 </FilesMatch>
