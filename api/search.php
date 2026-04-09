@@ -39,8 +39,10 @@ if (empty($query)) {
     exit;
 }
 
-// Sanitize query
-$query = htmlspecialchars($query, ENT_QUOTES, 'UTF-8');
+// Note: Do not apply htmlspecialchars here — the query is sent to
+// Archive.org's API (via http_build_query which handles URL-encoding),
+// not rendered as HTML. htmlspecialchars would corrupt quotes and
+// ampersands in search expressions (e.g. license URL filters).
 
 try {
     $archiveService = new ArchiveOrgService();
