@@ -2344,7 +2344,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
         let draggedItem = null;
         let featuredSections = <?= json_encode($featured_sections) ?>;
         let currentEditingSection = null;
-        let hasUnsavedChanges = false;
+        let dirtyPanels = new Set();
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -2392,26 +2392,45 @@ if (empty($featured_sections) && file_exists($sections_file)) {
             }, duration);
         }
 
-        // Change tracking
+        // Change tracking (per-panel, uses event delegation for dynamic elements)
         function setupChangeTracking() {
-            document.querySelectorAll('.form-input, .form-select, .color-picker').forEach(el => {
-                el.addEventListener('input', markUnsaved);
-                el.addEventListener('change', markUnsaved);
+            const content = document.querySelector('.admin-content');
+            content.addEventListener('input', (e) => {
+                if (e.target.matches('.form-input, .form-select, .color-picker, .toggle input')) {
+                    markUnsaved();
+                }
             });
-            document.querySelectorAll('.toggle input').forEach(el => {
-                el.addEventListener('change', markUnsaved);
+            content.addEventListener('change', (e) => {
+                if (e.target.matches('.form-input, .form-select, .color-picker, .toggle input')) {
+                    markUnsaved();
+                }
             });
         }
 
         function markUnsaved() {
             if (currentPanel === 'dashboard') return;
-            hasUnsavedChanges = true;
-            document.getElementById('unsavedDot').classList.add('visible');
+            dirtyPanels.add(currentPanel);
+            updateUnsavedIndicator();
         }
 
         function clearUnsaved() {
-            hasUnsavedChanges = false;
-            document.getElementById('unsavedDot').classList.remove('visible');
+            // Only clear the panel(s) that were actually saved
+            if (currentPanel === 'staff-picks') {
+                dirtyPanels.delete('staff-picks');
+            } else if (currentPanel === 'sections') {
+                dirtyPanels.delete('sections');
+            } else {
+                // site-settings, appearance, display all share one save endpoint
+                dirtyPanels.delete('site-settings');
+                dirtyPanels.delete('appearance');
+                dirtyPanels.delete('display');
+            }
+            updateUnsavedIndicator();
+        }
+
+        function updateUnsavedIndicator() {
+            const dot = document.getElementById('unsavedDot');
+            dot.classList.toggle('visible', dirtyPanels.size > 0);
         }
 
         function updateSaveButtonVisibility() {
