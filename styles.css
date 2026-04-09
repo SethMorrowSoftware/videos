@@ -1,6 +1,7 @@
 /* Archive Film Club - Enhanced UI
-   Version: 4.0.0
+   Version: 5.0.0
    Features: Theme toggle, modular architecture, loading skeletons, improved animations, enhanced cards
+   Player moved to dedicated player.php page
 */
 
 /* ==============================================
@@ -233,14 +234,20 @@
 [data-theme="light"] .btn-archive,
 [data-theme="light"] .btn-share,
 [data-theme="light"] .btn-bookmark {
-  background: rgba(0, 0, 0, 0.04);
-  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 [data-theme="light"] .btn-archive:hover,
 [data-theme="light"] .btn-share:hover,
 [data-theme="light"] .btn-bookmark:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .result-actions {
+  opacity: 1;
+  transform: none;
 }
 
 [data-theme="light"] .recommended-card-thumb {
@@ -1238,8 +1245,8 @@ body {
    ============================================== */
 .results-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-6) var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-5);
   margin-bottom: var(--space-8);
 }
 
@@ -1248,27 +1255,12 @@ body {
   border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
 }
 
-.result-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.03) 0%, transparent 100%);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-  border-radius: var(--radius-lg);
-  pointer-events: none;
-}
-
 .result-card:hover {
-  transform: translateY(-6px);
-}
-
-.result-card:hover::before {
-  opacity: 1;
+  transform: translateY(-4px);
 }
 
 .result-card:hover .result-thumb {
@@ -1284,11 +1276,45 @@ body {
   overflow: hidden;
   margin-bottom: var(--space-3);
   transition: all var(--transition-slow);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .result-card:hover .result-thumbnail {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Play overlay on thumbnail hover */
+.result-thumbnail .thumb-play-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  z-index: 2;
+}
+
+.result-card:hover .thumb-play-overlay {
+  opacity: 1;
+}
+
+.thumb-play-overlay .play-circle {
+  width: 48px;
+  height: 48px;
+  background: var(--color-brand-primary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 16px rgba(255, 0, 0, 0.5);
+  transition: transform var(--transition-base);
+}
+
+.result-card:hover .thumb-play-overlay .play-circle {
+  transform: scale(1.1);
 }
 
 .result-thumb {
@@ -1413,13 +1439,21 @@ body {
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-3);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: all 0.2s ease;
+}
+
+.result-card:hover .result-actions {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .result-actions .btn {
   flex: 1;
   padding: var(--space-2);
   font-size: var(--font-size-xs);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
 }
 
 .btn-play {
@@ -1432,41 +1466,39 @@ body {
 
 .btn-play:hover {
   background: var(--color-brand-secondary);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(255, 0, 0, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.4);
 }
 
 .btn-archive {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--color-text-secondary);
-  border: 1px solid rgba(48, 48, 48, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all var(--transition-base);
 }
 
 .btn-archive:hover {
-  background: rgba(39, 39, 39, 0.8);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--color-text-primary);
-  border-color: rgba(99, 102, 241, 0.3);
-  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .btn-share,
 .btn-bookmark {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--color-text-secondary);
-  border: 1px solid rgba(48, 48, 48, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: var(--space-2) !important;
   flex: 0 0 auto !important;
-  width: 2.5rem;
+  width: 2.25rem;
   transition: all var(--transition-base);
 }
 
 .btn-share:hover,
 .btn-bookmark:hover {
-  background: rgba(39, 39, 39, 0.8);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--color-text-primary);
-  border-color: rgba(99, 102, 241, 0.3);
-  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .btn-bookmark.bookmarked {
@@ -2195,11 +2227,7 @@ body {
   .sidebar {
     width: 200px;
   }
-  
-  .results-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  }
-  
+
   .recommended-card {
     flex: 0 0 180px;
   }
@@ -2298,58 +2326,15 @@ body {
     display: none;
   }
 
-  .player {
-    border-radius: 0;
-    scroll-margin-top: 70px;
-    margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-6);
-  }
-
-  .player-controls {
-    padding: var(--space-3);
-  }
-
-  .play-pause-btn {
-    width: 2.5rem;
-    height: 2.5rem;
-  }
-
   .results-grid {
-    grid-template-columns: 1fr;
-    gap: var(--space-6);
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: var(--space-4);
   }
 
-  /* Playlist - Mobile */
-  .playlist-container {
-    border-radius: 0;
-    margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-6);
-  }
-  
-  .playlist-header {
-    padding: var(--space-4);
-  }
-  
-  .playlist-header h3 {
-    font-size: var(--font-size-lg);
-  }
-  
-  .playlist-nav {
-    padding: var(--space-3) var(--space-4);
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-  
-  .playlist-nav-btn {
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--font-size-xs);
-  }
-  
-  .episode-item {
-    padding: var(--space-3) var(--space-4);
-    gap: var(--space-3);
-  }
-  
-  .episode-item.active {
-    padding-left: calc(var(--space-4) - 3px);
+  /* Show actions on mobile since no hover */
+  .result-actions {
+    opacity: 1;
+    transform: none;
   }
 
   .pagination {
@@ -2373,25 +2358,22 @@ body {
   .content-area {
     padding: var(--space-3);
   }
-  
+
   .recommended-card {
     flex: 0 0 130px;
   }
-  
+
   .recommended-card-title {
     font-size: var(--font-size-xs);
   }
-  
+
+  .results-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
   .result-title {
     font-size: var(--font-size-sm);
-  }
-  
-  .episode-number-col {
-    width: 30px;
-  }
-  
-  .episode-title {
-    font-size: var(--font-size-xs);
   }
 }
 
@@ -2568,62 +2550,20 @@ body {
    Enhanced Card Hover Effects
    ============================================== */
 
-/* Glow effect on card hover */
-.result-card::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(255, 0, 0, 0.05) 100%);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-  border-radius: var(--radius-xl);
-  pointer-events: none;
-  z-index: -1;
-}
-
-.result-card:hover {
-  transform: translateY(-8px);
-}
-
-.result-card:hover::before {
-  opacity: 1;
-}
-
-.result-card:hover .result-thumbnail {
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.2);
-}
-
-.result-card:hover .result-thumb {
-  transform: scale(1.08);
-}
-
-/* Play overlay on thumbnail hover */
+/* Subtle bottom gradient on thumbnail */
 .result-thumbnail::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+  background: linear-gradient(180deg, transparent 60%, rgba(0, 0, 0, 0.5) 100%);
   opacity: 0;
   transition: opacity var(--transition-base);
   pointer-events: none;
+  z-index: 1;
 }
 
 .result-card:hover .result-thumbnail::after {
   opacity: 1;
-}
-
-/* Button hover improvements */
-.btn-play:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(255, 0, 0, 0.4);
-}
-
-.btn-archive:hover,
-.btn-share:hover,
-.btn-bookmark:hover {
-  transform: translateY(-2px);
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-hover);
 }
 
 /* ==============================================

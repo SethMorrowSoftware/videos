@@ -1,7 +1,7 @@
 /**
  * ArchiveVideoSearch - Enhanced Version with Modular Architecture
- * Version: 3.0.0
- * Fully modularized with separated services and utilities
+ * Version: 4.0.0
+ * Search/browse page - video playback moved to dedicated player.php
  */
 
 // Import configuration
@@ -12,10 +12,8 @@ import { ICONS } from './src/js/utils/icons.js';
 import {
   safeParseJSON,
   escapeHtml,
-  sanitizeHtml,
   extractValue,
   formatRuntime,
-  formatTime,
   getThumbnailUrl
 } from './src/js/utils/helpers.js';
 import { UIFeedback } from './src/js/utils/uiFeedback.js';
@@ -24,8 +22,6 @@ import { UrlManager } from './src/js/utils/urlManager.js';
 // Import services
 import { SearchCache } from './src/js/services/SearchCache.js';
 import { SearchService } from './src/js/services/SearchService.js';
-import { VideoService } from './src/js/services/VideoService.js';
-import { PlaylistService } from './src/js/services/PlaylistService.js';
 import { VideoProgressTracker } from './src/js/services/VideoProgressTracker.js';
 import { BookmarkManager } from './src/js/services/BookmarkManager.js';
 import { OfflineHandler } from './src/js/services/OfflineHandler.js';
@@ -46,20 +42,15 @@ class ArchiveVideoSearch {
     this.currentQuery = '';
     this.totalResults = 0;
     this.searchDebounceTimer = null;
-    this.keyboardHandler = null;
 
     // Load site settings from admin panel
     this.siteSettings = this.loadSiteSettings();
 
     // Feature flags (now driven by admin settings)
-    this.useInfiniteScroll = false;
-    this.enableTheaterMode = true;
     this.enableBookmarks = this.siteSettings.enableBookmarks ?? false;
 
     // Initialize services
-    this.videoService = new VideoService();
     this.searchService = new SearchService();
-    this.playlistService = new PlaylistService(this.videoService);
     this.progressTracker = new VideoProgressTracker();
     this.searchCache = new SearchCache();
     this.bookmarkManager = new BookmarkManager();
@@ -127,23 +118,15 @@ class ArchiveVideoSearch {
     this.results = document.getElementById('results');
     this.pagination = document.getElementById('pagination');
     this.searchStats = document.getElementById('searchStats');
-    this.playerContainer = document.getElementById('playerContainer');
-    this.playPauseBtn = document.getElementById('playPauseBtn');
-    this.playerTitle = document.getElementById('playerTitle');
-    this.playerMeta = document.getElementById('playerMeta');
-    this.playerInfo = document.getElementById('playerInfo');
     this.publicDomain = document.getElementById('publicDomain');
     this.collectionsOnly = document.getElementById('collectionsOnly');
     this.sidebar = document.querySelector('.sidebar');
     this.mobileMenuBtn = document.querySelector('.mobile-menu-btn');
     this.mobileOverlay = document.querySelector('.mobile-overlay');
     this.mobileCloseBtn = document.querySelector('.mobile-close-btn');
-    this.theaterModeBtn = document.getElementById('theaterModeBtn');
-    this.surpriseMeBtn = document.getElementById('surpriseMeBtn');
-    this.bookmarksBtn = document.getElementById('bookmarksBtn');
 
     const criticalElements = [
-      'searchForm', 'searchInput', 'collection', 'results', 'playerContainer'
+      'searchForm', 'searchInput', 'collection', 'results'
     ];
 
     for (const elementName of criticalElements) {
@@ -237,30 +220,8 @@ class ArchiveVideoSearch {
       this.clearFilters.addEventListener('click', () => this.clearAllFilters());
     }
 
-    if (this.playPauseBtn) {
-      this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
-    }
-
-    if (this.theaterModeBtn) {
-      this.theaterModeBtn.addEventListener('click', () => this.toggleTheaterMode());
-    }
-
-    if (this.surpriseMeBtn) {
-      this.surpriseMeBtn.addEventListener('click', () => this.playRandomVideo());
-    }
-
-    if (this.bookmarksBtn) {
-      this.bookmarksBtn.addEventListener('click', () => this.showBookmarks());
-    }
-
     window.addEventListener('popstate', () => {
       this.handleUrlParameters();
-    });
-
-    document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement && this.playerContainer) {
-        this.playerContainer.classList.remove('is-fullscreen');
-      }
     });
 
     this.setupMobileMenu();
@@ -415,8 +376,12 @@ class ArchiveVideoSearch {
   handleUrlParameters() {
     const urlState = UrlManager.parseUrlState();
 
+    // Redirect video URLs to dedicated player page
     if (urlState.videoId) {
-      this.loadVideoFromUrl(urlState.videoId, urlState.track, urlState.timestamp);
+      let playerUrl = `player.php?video=${encodeURIComponent(urlState.videoId)}`;
+      if (urlState.track !== null) playerUrl += `&track=${urlState.track + 1}`;
+      if (urlState.timestamp) playerUrl += `&t=${urlState.timestamp}`;
+      window.location.href = playerUrl;
       return;
     }
 
@@ -435,7 +400,6 @@ class ArchiveVideoSearch {
 
   loadInitialSearch() {
     setTimeout(() => {
-      // Use admin settings for defaults, falling back to hardcoded values
       const defaultCollection = this.siteSettings.defaultCollection || 'all_videos';
       const defaultSort = this.siteSettings.defaultSort || 'downloads';
 
@@ -445,22 +409,15 @@ class ArchiveVideoSearch {
     }, 500);
   }
 
-  async loadVideoFromUrl(id, track = null, timestamp = null) {
-    try {
-      this.uiFeedback.showLoading();
-      await this.playVideo(id, id, 'Unknown', track);
-
-      if (timestamp && this.videoService.getVideoControls()?.video) {
-        setTimeout(() => {
-          this.videoService.getVideoControls().video.currentTime = timestamp;
-        }, 1000);
-      }
-    } catch (err) {
-      console.error('Deep-link load failed:', err);
-      this.uiFeedback.showError('Could not load video from link.');
-    } finally {
-      this.uiFeedback.hideLoading();
+  /**
+   * Navigate to the dedicated player page
+   */
+  navigateToPlayer(id, track = null) {
+    let url = `player.php?video=${encodeURIComponent(id)}`;
+    if (track !== null && track !== undefined) {
+      url += `&track=${track + 1}`;
     }
+    window.location.href = url;
   }
 
   // ========================================
@@ -487,7 +444,6 @@ class ArchiveVideoSearch {
     });
     UrlManager.updateUrl(urlParams, true);
 
-    this.hidePlayer();
     this.uiFeedback.showLoading();
     this.uiFeedback.hideError();
 
@@ -551,7 +507,7 @@ class ArchiveVideoSearch {
     if (!this.results) return;
 
     this.results.querySelectorAll('.result-card').forEach(card => {
-      card.addEventListener('click', async e => {
+      card.addEventListener('click', (e) => {
         if (e.target.closest('button, a')) return;
 
         const id = card.dataset.identifier;
@@ -560,16 +516,13 @@ class ArchiveVideoSearch {
         if (mediatype === 'collection') {
           this.openCollection(card, id);
         } else {
-          const title = card.querySelector('.result-title').textContent;
-          const creatorEl = card.querySelector('.result-creator');
-          const creator = creatorEl ? creatorEl.textContent : 'Unknown';
-          await this.playVideo(id, title, creator);
+          this.navigateToPlayer(id);
         }
       });
     });
 
     this.results.querySelectorAll('.btn-play, .btn-primary-action').forEach(btn => {
-      btn.addEventListener('click', async e => {
+      btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const card = e.target.closest('.result-card');
         const id = card.dataset.identifier;
@@ -578,10 +531,7 @@ class ArchiveVideoSearch {
         if (mediatype === 'collection') {
           this.openCollection(card, id);
         } else {
-          const title = card.querySelector('.result-title').textContent;
-          const creatorEl = card.querySelector('.result-creator');
-          const creator = creatorEl ? creatorEl.textContent : 'Unknown';
-          await this.playVideo(id, title, creator);
+          this.navigateToPlayer(id);
         }
       });
     });
@@ -591,8 +541,7 @@ class ArchiveVideoSearch {
         e.stopPropagation();
         const card = e.target.closest('.result-card');
         const id = card.dataset.identifier;
-        const title = card.querySelector('.result-title').textContent;
-        this.shareVideo(id, null, title);
+        this.shareVideo(id);
       });
     });
 
@@ -698,6 +647,7 @@ class ArchiveVideoSearch {
           ${runtime && mediatype !== 'collection' ? `<span class="runtime-badge">${runtime}</span>` : ''}
           ${isPD ? `<span class="license-badge">Public Domain</span>` : ''}
           ${progressBar}
+          ${mediatype !== 'collection' ? `<div class="thumb-play-overlay"><span class="play-circle">${ICONS.play}</span></div>` : ''}
         </div>
         <div class="result-content">
           <div class="result-header">
@@ -722,333 +672,23 @@ class ArchiveVideoSearch {
   }
 
   // ========================================
-  // Video Playback
+  // Video Navigation (opens player page)
   // ========================================
-
-  async playVideo(id, title, creator, track = null) {
-    this.videoService.setCurrentlyPlaying(id);
-    if (this.playerTitle) this.playerTitle.textContent = title;
-    if (this.playerMeta) this.playerMeta.textContent = `by ${creator}`;
-
-    UrlManager.updateUrl({ video: id }, true);
-    this.updatePageTitle(title);
-
-    // Proactively cache the video being played (high priority)
-    if (this.backgroundCacheService) {
-      this.backgroundCacheService.cacheItemImmediately(id);
-    }
-
-    if (this.playerContainer) {
-      this.playerContainer.classList.add('visible');
-      this.playerContainer.removeAttribute('aria-hidden');
-    }
-
-    if (this.userPreferences.theaterMode && this.enableTheaterMode && this.playerContainer) {
-      this.playerContainer.classList.add('theater-mode');
-    }
-
-    this.updatePlayPauseButton(true);
-
-    if (this.playerContainer) {
-      this.playerContainer.scrollIntoView({ behavior: 'smooth' });
-    }
-
-    const playerLoader = this.playerContainer?.querySelector('.player-loader');
-    const videoWrapper = this.playerContainer?.querySelector('.video-wrapper');
-
-    try {
-      if (playerLoader) playerLoader.style.display = 'flex';
-      const existingVideo = videoWrapper?.querySelector('.video-player');
-      if (existingVideo) existingVideo.remove();
-
-      const metadata = await this.videoService.getVideoMetadata(id);
-
-      if (metadata.metadata && metadata.metadata.mediatype === 'collection' && !metadata.files) {
-        throw new Error('Collection item has no direct playable media.');
-      }
-
-      const videoData = await this.videoService.loadNativeVideo(
-        id,
-        metadata,
-        videoWrapper,
-        null,
-        this.userPreferences.volume
-      );
-
-      // Setup video event listeners
-      this.setupVideoEventListeners(videoData.videoElement, id);
-
-      const progress = this.progressTracker.getProgress(id);
-      if (progress && videoData.videoElement) {
-        setTimeout(() => {
-          if (confirm(`Resume from ${formatTime(progress.currentTime)}?`)) {
-            videoData.videoElement.currentTime = progress.currentTime;
-          }
-        }, 1000);
-      }
-
-      // Deduplicate video files to avoid showing both .ia and .mp4 for the same episode
-      const deduplicatedFiles = this.videoService.deduplicateVideoFiles(videoData.videoFiles);
-
-      if (deduplicatedFiles.length > 1 && this.videoService.hasMultipleUniqueVideos(deduplicatedFiles)) {
-        const startIndex = track !== null && track >= 0 && track < deduplicatedFiles.length ? track : 0;
-        this.setupPlaylist(id, title, creator, videoData.metadata, deduplicatedFiles, startIndex);
-      } else {
-        this.displayVideoMetadata(title, creator, videoData.metadata, deduplicatedFiles);
-      }
-
-    } catch (err) {
-      console.log('Native load failed, falling back to iframe:', err.message);
-      this.videoService.loadIframeVideo(id, videoWrapper);
-      this.displaySimpleMetadata(title, creator);
-    } finally {
-      if (playerLoader) playerLoader.style.display = 'none';
-    }
-  }
-
-  setupVideoEventListeners(videoEl, id) {
-    if (!videoEl) return;
-
-    videoEl.addEventListener('play', () => {
-      this.updatePlayPauseButton(true);
-    });
-
-    videoEl.addEventListener('pause', () => {
-      this.updatePlayPauseButton(false);
-      if (id && videoEl.currentTime && videoEl.duration) {
-        this.progressTracker.saveProgress(id, videoEl.currentTime, videoEl.duration);
-      }
-    });
-  }
-
-  toggleTheaterMode() {
-    if (!this.playerContainer) return;
-
-    this.playerContainer.classList.toggle('theater-mode');
-    const isTheater = this.playerContainer.classList.contains('theater-mode');
-
-    if (this.theaterModeBtn) {
-      this.theaterModeBtn.textContent = isTheater ? 'Exit Theater' : 'Theater Mode';
-    }
-
-    this.saveUserPreferences();
-    this.showMessage(isTheater ? 'Theater mode enabled' : 'Theater mode disabled', 'info');
-  }
-
-  async playRandomVideo() {
-    this.uiFeedback.showLoading();
-
-    try {
-      const randomVideo = await this.searchService.getRandomVideo();
-      const title = extractValue(randomVideo.title);
-      const creator = extractValue(randomVideo.creator);
-
-      await this.playVideo(randomVideo.identifier, title, creator);
-      this.showMessage('Random video selected!', 'success');
-    } catch (err) {
-      console.error('Random video failed:', err);
-      this.uiFeedback.showError('Could not find a random video. Try again!');
-    } finally {
-      this.uiFeedback.hideLoading();
-    }
-  }
-
-  showBookmarks() {
-    this.showMessage('Bookmarks feature coming soon!', 'info');
-  }
-
-  updatePlayPauseButton(isPlaying) {
-    if (!this.playPauseBtn) return;
-
-    const playIcon = this.playPauseBtn.querySelector('.play-icon');
-    const pauseIcon = this.playPauseBtn.querySelector('.pause-icon');
-    if (isPlaying) {
-      if (playIcon) playIcon.style.display = 'none';
-      if (pauseIcon) pauseIcon.style.display = 'block';
-    } else {
-      if (playIcon) playIcon.style.display = 'block';
-      if (pauseIcon) pauseIcon.style.display = 'none';
-    }
-  }
-
-  togglePlayPause() {
-    this.videoService.togglePlayPause(this.playerContainer);
-  }
-
-  // ========================================
-  // Playlist Management
-  // ========================================
-
-  setupPlaylist(id, title, creator, metadata, videoFiles, startIndex = 0) {
-    this.playlistService.initPlaylist(id, title, creator, metadata, videoFiles, startIndex);
-    this.displayPlaylistInterface(startIndex);
-
-    if (startIndex >= 0 && startIndex < videoFiles.length) {
-      this.playPlaylistItem(startIndex);
-    }
-  }
-
-  displayPlaylistInterface(currentIndex = 0) {
-    if (!this.playerInfo) return;
-
-    this.playerInfo.innerHTML = this.playlistService.generatePlaylistHTML(currentIndex);
-    this.setupPlaylistControls(currentIndex);
-  }
-
-  async playPlaylistItem(index) {
-    const playlist = this.playlistService.getPlaylist();
-    if (!playlist) return;
-
-    const file = playlist.videoFiles[index];
-    if (!file) return;
-
-    this.playlistService.setCurrentIndex(index);
-    UrlManager.updateUrl({ video: playlist.id, track: String(index + 1) }, true);
-
-    this.displayPlaylistInterface(index);
-
-    if (this.playerContainer) {
-      this.playerContainer.scrollIntoView({ behavior: 'smooth' });
-    }
-
-    const videoWrapper = this.playerContainer?.querySelector('.video-wrapper');
-
-    try {
-      const videoData = await this.videoService.loadNativeVideo(
-        playlist.id,
-        { metadata: playlist.metadata, files: playlist.videoFiles },
-        videoWrapper,
-        file.name,
-        this.userPreferences.volume
-      );
-      this.setupVideoEventListeners(videoData.videoElement, playlist.id);
-    } catch (err) {
-      console.error('Error loading playlist item:', err);
-      this.markEpisodeAsUnplayable(index);
-
-      const nextPlayableIndex = this.playlistService.findNextPlayable(new Set([index]));
-      if (nextPlayableIndex !== -1) {
-        setTimeout(() => {
-          this.playPlaylistItem(nextPlayableIndex);
-        }, 1000);
-      } else {
-        this.uiFeedback.showError(`Failed to load episode ${index + 1}: ${err.message}`);
-      }
-    }
-  }
-
-  markEpisodeAsUnplayable(index) {
-    const episodeItem = this.playerInfo?.querySelector(`[data-index="${index}"]`);
-    if (episodeItem) {
-      episodeItem.classList.add('unplayable');
-      episodeItem.title = 'This video cannot be played directly';
-    }
-  }
-
-  setupPlaylistControls(currentIndex) {
-    if (!this.playerInfo) return;
-
-    const prevBtn = this.playerInfo.querySelector('.prev-btn');
-    const nextBtn = this.playerInfo.querySelector('.next-btn');
-    const playlist = this.playlistService.getPlaylist();
-
-    this.playerInfo.querySelectorAll('.episode-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const idx = parseInt(item.dataset.index, 10);
-        if (idx !== currentIndex && !item.classList.contains('unplayable')) {
-          this.playPlaylistItem(idx);
-        }
-      });
-    });
-
-    if (prevBtn) {
-      prevBtn.addEventListener('click', () => {
-        if (this.playlistService.hasPrevious()) {
-          this.playPlaylistItem(this.playlistService.previous());
-        }
-      });
-    }
-
-    if (nextBtn) {
-      nextBtn.addEventListener('click', () => {
-        if (this.playlistService.hasNext()) {
-          this.playPlaylistItem(this.playlistService.next());
-        }
-      });
-    }
-  }
-
-  // ========================================
-  // Video Metadata Display
-  // ========================================
-
-  displaySimpleMetadata(title, creator) {
-    if (!this.playerInfo) return;
-
-    this.playerInfo.innerHTML = `
-      <div class="video-metadata">
-        <h3 class="video-metadata__title">${escapeHtml(title)}</h3>
-        <p class="video-metadata__creator"><strong>By:</strong> ${escapeHtml(creator)}</p>
-      </div>`;
-  }
-
-  displayVideoMetadata(title, creator, metadata, videoFiles) {
-    if (!this.playerInfo) return;
-
-    const metadataElement = document.createElement('div');
-    metadataElement.className = 'video-metadata';
-
-    let html = `
-      <h3 class="video-metadata__title">${escapeHtml(title)}</h3>
-      <p class="video-metadata__creator"><strong>By:</strong> ${escapeHtml(creator)}</p>`;
-
-    if (metadata?.description) {
-      html += `<div class="video-metadata__description"></div>`;
-    }
-
-    if (metadata?.date) html += `<p><strong>Date:</strong> ${escapeHtml(extractValue(metadata.date))}</p>`;
-    if (videoFiles.length > 1) html += `<p><strong>Available qualities:</strong> ${videoFiles.length} versions</p>`;
-
-    metadataElement.innerHTML = html;
-
-    if (metadata?.description) {
-      const descElement = metadataElement.querySelector('.video-metadata__description');
-      if (descElement) {
-        descElement.innerHTML = sanitizeHtml(extractValue(metadata.description));
-      }
-    }
-
-    this.playerInfo.innerHTML = metadataElement.outerHTML;
-  }
 
   // ========================================
   // Sharing
   // ========================================
 
-  shareVideo(id, track = null, title = '') {
-    const link = UrlManager.buildVideoShareUrl(id, track);
+  shareVideo(id) {
+    const link = `${window.location.origin}/player.php?video=${encodeURIComponent(id)}`;
 
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(link)
         .then(() => this.showMessage('Link copied to clipboard!', 'success'))
-        .catch(() => this.showShareModal(link));
+        .catch(() => this.showMessage('Could not copy link', 'error'));
     } else {
-      this.showShareModal(link);
+      prompt('Copy this link:', link);
     }
-  }
-
-  showShareModal(url) {
-    const modal = document.createElement('div');
-    modal.style.cssText = `position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:1000;`;
-    modal.innerHTML = `
-      <div style="background:#222;color:#fff;padding:2rem;border-radius:1rem;max-width:90vw;text-align:center;">
-        <h3>Share this video</h3>
-        <input value="${url}" readonly style="width:100%;padding:0.5rem;margin:1rem 0;border:none;border-radius:0.5rem;" />
-        <button onclick="this.closest('div').parentNode.remove()" style="padding:0.5rem 1rem;border:none;border-radius:0.5rem;cursor:pointer;background:var(--color-accent);color:#fff;">Close</button>
-      </div>`;
-    document.body.appendChild(modal);
-    modal.querySelector('input').select();
-    modal.onclick = e => { if (e.target === modal) modal.remove(); };
   }
 
   // ========================================
@@ -1057,32 +697,6 @@ class ArchiveVideoSearch {
 
   showMessage(msg, type = 'info', duration = 3000) {
     this.toast.show(msg, type, duration);
-  }
-
-  // ========================================
-  // Player Management
-  // ========================================
-
-  hidePlayer() {
-    if (!this.playerContainer) return;
-
-    this.playerContainer.classList.remove('visible');
-    this.playerContainer.setAttribute('aria-hidden', 'true');
-    this.videoService.setCurrentlyPlaying(null);
-    this.playlistService.clearPlaylist();
-
-    if (this.keyboardHandler) {
-      document.removeEventListener('keydown', this.keyboardHandler);
-      this.keyboardHandler = null;
-    }
-
-    const videoWrapper = this.playerContainer.querySelector('.video-wrapper');
-    if (videoWrapper) {
-      videoWrapper.innerHTML = `<div class="player-loader" style="display: none;"><div class="loading-spinner"><div class="spinner-ring"></div></div></div>`;
-    }
-
-    if (this.playerInfo) this.playerInfo.innerHTML = '';
-    this.updatePlayPauseButton(false);
   }
 
   // ========================================
@@ -1162,8 +776,6 @@ class ArchiveVideoSearch {
 
     this.currentPage = 1;
     this.currentQuery = '';
-
-    this.hidePlayer();
 
     UrlManager.clearUrl();
 
