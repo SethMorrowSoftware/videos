@@ -6,17 +6,10 @@
     AddHandler application/x-httpd-php .php
 </IfModule>
 
-# CORS headers for API
-<IfModule mod_headers.c>
-    Header always set Access-Control-Allow-Origin "*"
-    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
-
-    # Handle preflight OPTIONS requests
-    RewriteEngine On
-    RewriteCond %{REQUEST_METHOD} OPTIONS
-    RewriteRule ^(.*)$ $1 [R=200,L]
-</IfModule>
+# NOTE: CORS headers intentionally NOT set here. The API is same-origin.
+# A previous version emitted "Access-Control-Allow-Origin: *" which let any
+# remote origin POST to the cache/auth endpoints. If you ever need CORS,
+# restrict it to your APP_URL explicitly rather than using a wildcard.
 
 # Disable directory listing
 Options -Indexes

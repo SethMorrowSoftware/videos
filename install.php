@@ -12,15 +12,41 @@
 $envFile = __DIR__ . '/.env';
 $lockFile = __DIR__ . '/.installed';
 
-// Prevent re-running if already installed (no bypass allowed)
-if (file_exists($lockFile)) {
+/**
+ * Defensive install guard.
+ *
+ * Primary check: the `.installed` lock file. Secondary check: even if the
+ * lock file has been deleted (accidentally via cPanel file manager, or
+ * maliciously), we refuse to re-run the installer when an admin user
+ * already exists in the database. This prevents credential-reset attacks
+ * that rely on removing the lock file.
+ */
+$alreadyInstalled = file_exists($lockFile);
+if (!$alreadyInstalled && file_exists($envFile)) {
+    try {
+        require_once __DIR__ . '/bootstrap.php';
+        if (class_exists('Database')) {
+            $db = Database::getInstance();
+            $adminCount = (int)$db->fetchColumn(
+                "SELECT COUNT(*) FROM users WHERE role IN ('admin','editor') AND is_guest = 0"
+            );
+            if ($adminCount > 0) {
+                $alreadyInstalled = true;
+            }
+        }
+    } catch (Throwable $e) {
+        // DB not reachable yet -- normal on first run. Fall through.
+    }
+}
+
+if ($alreadyInstalled) {
     die('
     <html>
     <head><title>Already Installed</title></head>
     <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
         <h1>Already Installed</h1>
-        <p>Archive Film Club appears to be already installed.</p>
-        <p>If you need to reinstall, delete the <code>.installed</code> file and try again.</p>
+        <p>Archive Film Club is already installed.</p>
+        <p><strong>You should delete <code>install.php</code> now</strong> (or uncomment the install.php deny block in <code>.htaccess</code>). If you really need to reinstall from scratch, drop the database tables and remove the <code>.installed</code> file.</p>
         <p><a href="index.php">Go to Site</a> | <a href="admin.php">Go to Admin</a></p>
     </body>
     </html>
@@ -76,6 +102,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $envContent .= "ENABLE_API_LOGGING=true\n";
 
                 if (file_put_contents($envFile, $envContent)) {
+                    // Restrict permissions so other users on the shared host
+                    // cannot read database credentials via the filesystem.
+                    // chmod may be a no-op on some cPanel configurations;
+                    // suppress errors and continue.
+                    @chmod($envFile, 0600);
+
                     header('Location: install.php?step=2');
                     exit;
                 } else {

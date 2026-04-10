@@ -692,3 +692,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 export default VideoPlayer;
+
+// Service worker registration (same rationale as app.js -- relative URL
+// so subdirectory installs resolve correctly).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((err) => {
+      console.warn('[SW] Registration failed:', err);
+    });
+  });
+}

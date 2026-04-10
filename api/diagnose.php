@@ -2,9 +2,46 @@
 /**
  * Server Diagnostic Script
  *
- * Upload this to your server and access it at: https://yourdomain.com/api/diagnose.php
- * DELETE THIS FILE after diagnosing - it exposes server information!
+ * Exposes infrastructure info (paths, DB name, extension list, etc.) so it
+ * MUST be kept behind admin auth. DELETE THIS FILE once the site is stable
+ * on the target host.
+ *
+ * Access: https://yourdomain.com/api/diagnose.php (admin login required)
  */
+
+require_once __DIR__ . '/../bootstrap.php';
+
+// Access control:
+//   1. After the site has been installed (`.installed` file exists), this
+//      page is strictly admin-only. It returns HTML rather than JSON, so we
+//      hand-roll the gate instead of using ApiController::requireAdmin().
+//   2. Before install (.installed missing), we allow access as a
+//      troubleshooting escape hatch -- the page is useful precisely for
+//      diagnosing install failures, and at that point there are no
+//      credentials to protect anyway.
+$lockFile = dirname(__DIR__) . '/.installed';
+$postInstall = file_exists($lockFile);
+
+if ($postInstall) {
+    $currentUser = null;
+    if (class_exists('UserAuthService')) {
+        $currentUser = (new UserAuthService())->currentUser();
+    }
+    if (!$currentUser && class_exists('AdminAuthService')) {
+        $currentUser = (new AdminAuthService())->validateSession();
+    }
+    $role = $currentUser['role'] ?? null;
+    if ($role !== 'admin' && $role !== 'editor') {
+        http_response_code(403);
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html><head><title>Forbidden</title></head><body style="font-family:sans-serif;max-width:600px;margin:60px auto;padding:20px">';
+        echo '<h1>403 Forbidden</h1>';
+        echo '<p>The server diagnostic page is restricted to administrators.</p>';
+        echo '<p><a href="../admin.php">Admin login</a></p>';
+        echo '</body></html>';
+        exit;
+    }
+}
 
 header('Content-Type: text/html; charset=utf-8');
 ?>

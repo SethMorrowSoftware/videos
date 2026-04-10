@@ -11,25 +11,28 @@
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../cache/CacheManager.php';
 
-// CORS preflight
+// Same-origin only. Removed Access-Control-Allow-Origin: * -- the app does
+// not need CORS and wildcard CORS here lets any origin queue caching work.
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: POST, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type');
-    http_response_code(200);
+    http_response_code(204);
     exit;
 }
-
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
 
 $api = new ApiController();
 $api->requireMethod('POST');
 
+// Actions that read or mutate shared cache state require admin. User-facing
+// "queue these items while I browse" actions are open to any same-origin
+// session (protected by SameSite=Lax + no-CORS).
+$ADMIN_ONLY_ACTIONS = ['process_queue', 'refresh_stale', 'stats'];
+
 try {
     $body = $api->jsonBody();
     $action = $body['action'] ?? 'queue';
+
+    if (in_array($action, $ADMIN_ONLY_ACTIONS, true)) {
+        $api->requireAdmin();
+    }
 
     $localStorageService = new LocalStorageService();
     $cacheManager = new CacheManager();
