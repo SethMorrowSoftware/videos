@@ -173,6 +173,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
 
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="player-styles.css">
+  <link rel="stylesheet" href="auth-styles.css">
 
   <style>
     :root {
@@ -218,9 +219,15 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       </a>
 
       <div class="player-header-actions">
+        <div class="header-auth" data-auth-nav></div>
         <button id="bookmarkBtn" class="player-action-btn" title="Bookmark" aria-label="Bookmark this video">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M5 5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L12 17.5L5 21V5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button id="saveToCollectionBtn" class="player-action-btn" title="Save to collection" aria-label="Save to collection">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M4 6H20M4 12H14M4 18H14M18 15V21M15 18H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
         <?php if ($site_settings['enableThemeToggle']): ?>

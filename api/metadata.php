@@ -2,61 +2,34 @@
 /**
  * Video Metadata API Endpoint
  *
- * Returns cached video metadata from Archive.org
+ * GET ?id=X → cached video metadata from Archive.org
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/ArchiveOrgService.php';
+$api = new ApiController();
+$api->requireMethod('GET');
 
-// Only allow GET requests
-if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
-    exit;
-}
-
-// Get video ID
-$archiveId = $_GET['id'] ?? '';
-
-// Validate ID
-if (empty($archiveId)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Missing video ID']);
-    exit;
-}
-
-// Sanitize ID (Archive.org IDs can contain letters, numbers, underscores, hyphens)
-$archiveId = preg_replace('/[^a-zA-Z0-9_-]/', '', $archiveId);
-
-if (empty($archiveId)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Invalid video ID']);
-    exit;
+$archiveId = ApiController::sanitizeArchiveId($api->query('id', ''));
+if ($archiveId === '') {
+    $api->error('Missing or invalid video ID', 400);
 }
 
 try {
     $archiveService = new ArchiveOrgService();
-
     $result = $archiveService->getMetadata($archiveId);
 
-    // Add cache headers
     if ($result['cached'] ?? false) {
         header('X-Cache: HIT');
-        header('Cache-Control: public, max-age=3600'); // 1 hour client cache
+        header('Cache-Control: public, max-age=3600');
     } else {
         header('X-Cache: MISS');
-        header('Cache-Control: public, max-age=300'); // 5 minutes client cache
+        header('Cache-Control: public, max-age=300');
     }
 
     echo json_encode($result);
-
-} catch (Exception $e) {
-    error_log("Metadata API error: " . $e->getMessage());
-
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Failed to fetch metadata. Please try again.',
-    ]);
+    exit;
+} catch (Throwable $e) {
+    error_log('[api/metadata] ' . $e->getMessage());
+    $api->error('Failed to fetch metadata. Please try again.', 500);
 }

@@ -2,65 +2,86 @@
 /**
  * Featured Sections API Endpoint
  *
- * GET: Returns featured sections
- * POST: Updates featured sections (requires admin authentication)
+ * GET  → featured sections
+ * POST → update featured sections (admin only)
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/SettingsService.php';
-require_once __DIR__ . '/../services/AdminAuthService.php';
+$api = new ApiController();
+$api->requireMethod(['GET', 'POST']);
 
 $settingsService = new SettingsService();
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Public endpoint - return sections
-    $sections = $settingsService->getFeaturedSections();
-
-    header('Cache-Control: public, max-age=3600'); // 1 hour cache
-    echo json_encode([
-        'success' => true,
-        'data' => $sections,
-    ]);
-
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Admin only - update sections
-    $authService = new AdminAuthService();
-    $admin = $authService->validateSession();
-
-    if (!$admin) {
-        http_response_code(401);
-        echo json_encode(['error' => 'Authentication required']);
-        exit;
-    }
-
-    // Get POST data
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
-
-    if (!$data || !is_array($data)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid JSON data']);
-        exit;
-    }
-
-    // Update sections
-    $success = $settingsService->updateFeaturedSections($data);
-
-    if ($success) {
-        echo json_encode([
-            'success' => true,
-            'message' => 'Sections updated successfully',
-        ]);
-    } else {
-        http_response_code(500);
-        echo json_encode([
-            'success' => false,
-            'error' => 'Failed to update sections',
-        ]);
-    }
-
-} else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+if ($api->isGet()) {
+    header('Cache-Control: public, max-age=3600');
+    $api->data($settingsService->getFeaturedSections());
 }
+
+// POST
+$api->requireAdmin();
+$body = $api->jsonBody();
+
+if (!isset($body['sections']) || !is_array($body['sections'])) {
+    $api->error('Invalid data structure', 400);
+}
+
+$sections = [];
+foreach ($body['sections'] as $section) {
+    if (!is_array($section) || !isset($section['id'], $section['title'])) {
+        continue;
+    }
+
+    $clean = [
+        'id' => preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$section['id']),
+        'title' => ApiController::sanitizeText($section['title'], 255),
+        'description' => isset($section['description']) ? ApiController::sanitizeText($section['description'], 1000) : '',
+        'enabled' => ApiController::sanitizeBool($section['enabled'] ?? true),
+        'videos' => [],
+    ];
+
+    if (isset($section['videos']) && is_array($section['videos'])) {
+        foreach ($section['videos'] as $video) {
+            if (!is_array($video) || empty($video['id'])) continue;
+            $cleanVideo = [
+                'id' => ApiController::sanitizeArchiveId($video['id']),
+                'title' => ApiController::sanitizeText($video['title'] ?? '', 500),
+                'creator' => ApiController::sanitizeText($video['creator'] ?? '', 255),
+            ];
+            if (isset($video['note'])) {
+                $cleanVideo['note'] = ApiController::sanitizeText($video['note'], 500);
+            }
+            $clean['videos'][] = $cleanVideo;
+        }
+    }
+
+    $clean['updated'] = date('c');
+    $sections[] = $clean;
+}
+
+$output = [
+    'sections' => $sections,
+    'updated' => date('c'),
+];
+
+$dbSaveSuccess = false;
+try {
+    $dbSaveSuccess = $settingsService->updateFeaturedSections($output);
+} catch (Throwable $e) {
+    error_log('[api/sections] DB save failed: ' . $e->getMessage());
+}
+
+// JSON fallback
+$jsonPath = base_path('featured-sections.json');
+@file_put_contents($jsonPath, json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+@chmod($jsonPath, 0644);
+
+if (!$dbSaveSuccess && !file_exists($jsonPath)) {
+    $api->error('Failed to save featured sections', 500);
+}
+
+$api->ok([
+    'message' => 'Featured sections saved successfully',
+    'sections_count' => count($sections),
+    'database' => $dbSaveSuccess,
+]);

@@ -1,0 +1,179 @@
+<?php
+/**
+ * AdminBootstrap — auth + data loading for the admin panel.
+ *
+ * Extracted from the monolithic admin.php head during the Phase 1
+ * modular refactor. Sets up the following variables in the global
+ * scope (so views can read them directly via `include`):
+ *
+ *   $useDatabase       bool   — is MySQL auth available?
+ *   $authService       ?AdminAuthService
+ *   $settingsService   ?SettingsService
+ *   $admin_user        ?array — row from users/admin_users on success
+ *   $is_logged_in      bool
+ *   $login_error       string
+ *   $current_recommendations array
+ *   $recommendations_data    array
+ *   $site_settings     array
+ *   $featured_sections array
+ *
+ * Handles login POST and ?logout=1 GET inline so the rest of the page
+ * only has to render. If the user is not signed in, $is_logged_in is
+ * false and the caller should render the login view.
+ */
+
+session_start();
+
+$useDatabase = false;
+$authService = null;
+$settingsService = null;
+$admin_user = null;
+
+try {
+    if (file_exists(__DIR__ . '/../../services/AdminAuthService.php') &&
+        file_exists(__DIR__ . '/../../services/SettingsService.php') &&
+        file_exists(__DIR__ . '/../../.env')) {
+
+        require_once __DIR__ . '/../../services/AdminAuthService.php';
+        require_once __DIR__ . '/../../services/SettingsService.php';
+
+        $authService = new AdminAuthService();
+        $settingsService = new SettingsService();
+
+        if ($authService->hasAdminUsers()) {
+            $useDatabase = true;
+        }
+    }
+} catch (Exception $e) {
+    error_log("Admin: Database not available, using JSON fallback: " . $e->getMessage());
+}
+
+// Fallback password from environment variable (never hardcode credentials)
+$ADMIN_PASSWORD = getenv('ADMIN_PASSWORD') ?: null;
+
+// Handle login
+$login_error = '';
+if (isset($_POST['password']) || (isset($_POST['username']) && isset($_POST['password']))) {
+    if ($useDatabase && $authService) {
+        $username = trim($_POST['username'] ?? 'admin');
+        $password = $_POST['password'] ?? '';
+
+        $user = $authService->authenticate($username, $password);
+        if ($user) {
+            $authService->startSession($user);
+            $admin_user = $user;
+        } else {
+            $login_error = 'Invalid username or password';
+        }
+    } else {
+        if ($ADMIN_PASSWORD && hash_equals($ADMIN_PASSWORD, $_POST['password'])) {
+            session_regenerate_id(true);
+            $_SESSION['admin_logged_in'] = true;
+        } else {
+            $login_error = 'Invalid password';
+        }
+    }
+}
+
+// Handle logout
+if (isset($_GET['logout'])) {
+    if ($useDatabase && $authService) {
+        $authService->endSession();
+    } else {
+        session_destroy();
+    }
+    header('Location: admin.php');
+    exit;
+}
+
+// Check if logged in
+if ($useDatabase && $authService) {
+    $admin_user = $authService->validateSession();
+    $is_logged_in = $admin_user !== null;
+} else {
+    $is_logged_in = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
+}
+
+// ---- Data loading (only meaningful once logged in, but cheap to do always) ----
+
+$recommendations_file = __DIR__ . '/../../recommendations.json';
+$current_recommendations = [];
+$recommendations_data = ['enabled' => true, 'title' => 'Staff Picks', 'videos' => []];
+
+if ($useDatabase && $settingsService && $is_logged_in) {
+    try {
+        $recommendations_data = $settingsService->getRecommendations();
+        $current_recommendations = $recommendations_data['videos'] ?? [];
+    } catch (Exception $e) {
+        error_log("Failed to load recommendations from DB: " . $e->getMessage());
+    }
+}
+
+if (empty($current_recommendations) && file_exists($recommendations_file)) {
+    $content = file_get_contents($recommendations_file);
+    $data = json_decode($content, true);
+    if ($data) {
+        $recommendations_data = $data;
+        if (isset($data['videos'])) {
+            $current_recommendations = $data['videos'];
+        }
+    }
+}
+
+$settings_file = __DIR__ . '/../../site-settings.json';
+$site_settings = [
+    'siteName' => 'Archive Film Club',
+    'tagline' => 'Discover classic films from Archive.org',
+    'brandColor' => '#ff0000',
+    'accentColor' => '#065fd4',
+    'defaultTheme' => 'dark',
+    'enableThemeToggle' => true,
+    'headerStyle' => 'default',
+    'cardStyle' => 'modern',
+    'showDownloadCount' => true,
+    'showCreator' => true,
+    'showDate' => true,
+    'enableBookmarks' => true,
+    'enableWatchHistory' => true,
+    'defaultCollection' => 'all_videos',
+    'defaultSort' => 'downloads'
+];
+
+if ($useDatabase && $settingsService && $is_logged_in) {
+    try {
+        $dbSettings = $settingsService->getSettings();
+        if (!empty($dbSettings)) {
+            $site_settings = array_merge($site_settings, $dbSettings);
+        }
+    } catch (Exception $e) {
+        error_log("Failed to load settings from DB: " . $e->getMessage());
+    }
+}
+
+if (file_exists($settings_file)) {
+    $content = file_get_contents($settings_file);
+    $data = json_decode($content, true);
+    if ($data) {
+        $site_settings = array_merge($site_settings, $data);
+    }
+}
+
+$sections_file = __DIR__ . '/../../featured-sections.json';
+$featured_sections = [];
+
+if ($useDatabase && $settingsService && $is_logged_in) {
+    try {
+        $sectionsData = $settingsService->getFeaturedSections();
+        $featured_sections = $sectionsData['sections'] ?? [];
+    } catch (Exception $e) {
+        error_log("Failed to load sections from DB: " . $e->getMessage());
+    }
+}
+
+if (empty($featured_sections) && file_exists($sections_file)) {
+    $content = file_get_contents($sections_file);
+    $data = json_decode($content, true);
+    if ($data && isset($data['sections'])) {
+        $featured_sections = $data['sections'];
+    }
+}

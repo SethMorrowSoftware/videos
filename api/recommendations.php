@@ -2,65 +2,67 @@
 /**
  * Recommendations API Endpoint
  *
- * GET: Returns staff picks/recommendations
- * POST: Updates recommendations (requires admin authentication)
+ * GET  → staff picks
+ * POST → update staff picks (admin only)
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/SettingsService.php';
-require_once __DIR__ . '/../services/AdminAuthService.php';
+$api = new ApiController();
+$api->requireMethod(['GET', 'POST']);
 
 $settingsService = new SettingsService();
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Public endpoint - return recommendations
-    $recommendations = $settingsService->getRecommendations();
-
-    header('Cache-Control: public, max-age=3600'); // 1 hour cache
-    echo json_encode([
-        'success' => true,
-        'data' => $recommendations,
-    ]);
-
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Admin only - update recommendations
-    $authService = new AdminAuthService();
-    $admin = $authService->validateSession();
-
-    if (!$admin) {
-        http_response_code(401);
-        echo json_encode(['error' => 'Authentication required']);
-        exit;
-    }
-
-    // Get POST data
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
-
-    if (!$data || !is_array($data)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid JSON data']);
-        exit;
-    }
-
-    // Update recommendations
-    $success = $settingsService->updateRecommendations($data);
-
-    if ($success) {
-        echo json_encode([
-            'success' => true,
-            'message' => 'Recommendations updated successfully',
-        ]);
-    } else {
-        http_response_code(500);
-        echo json_encode([
-            'success' => false,
-            'error' => 'Failed to update recommendations',
-        ]);
-    }
-
-} else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+if ($api->isGet()) {
+    header('Cache-Control: public, max-age=3600');
+    $api->data($settingsService->getRecommendations());
 }
+
+// POST
+$api->requireAdmin();
+$body = $api->jsonBody();
+
+if (!isset($body['videos']) || !is_array($body['videos'])) {
+    $api->error('Missing videos array', 400);
+}
+
+$videos = [];
+foreach ($body['videos'] as $video) {
+    if (!is_array($video) || empty($video['id']) || !is_string($video['id'])) {
+        continue;
+    }
+    $videos[] = [
+        'id' => ApiController::sanitizeArchiveId($video['id']),
+        'title' => ApiController::sanitizeText($video['title'] ?? '', 200),
+        'creator' => ApiController::sanitizeText($video['creator'] ?? '', 100),
+    ];
+}
+
+$recommendations = [
+    'enabled' => ApiController::sanitizeBool($body['enabled'] ?? true),
+    'title' => ApiController::sanitizeText($body['title'] ?? 'Staff Picks', 50),
+    'videos' => $videos,
+    'updated' => date('c'),
+];
+
+$dbSaveSuccess = false;
+try {
+    $dbSaveSuccess = $settingsService->updateRecommendations($recommendations);
+} catch (Throwable $e) {
+    error_log('[api/recommendations] DB save failed: ' . $e->getMessage());
+}
+
+// JSON fallback
+$jsonPath = base_path('recommendations.json');
+@file_put_contents($jsonPath, json_encode($recommendations, JSON_PRETTY_PRINT));
+@chmod($jsonPath, 0644);
+
+if (!$dbSaveSuccess && !file_exists($jsonPath)) {
+    $api->error('Failed to save recommendations', 500);
+}
+
+$api->ok([
+    'message' => 'Saved ' . count($videos) . ' videos',
+    'data' => $recommendations,
+    'database' => $dbSaveSuccess,
+]);

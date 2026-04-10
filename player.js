@@ -8,8 +8,13 @@ import { PlaylistService } from './src/js/services/PlaylistService.js';
 import { VideoProgressTracker } from './src/js/services/VideoProgressTracker.js';
 import { BookmarkManager } from './src/js/services/BookmarkManager.js';
 import { Toast } from './src/js/components/Toast.js';
+import { AuthNav } from './src/js/components/AuthNav.js';
+import { CollectionPicker } from './src/js/components/CollectionPicker.js';
 import { PlayerUI } from './src/js/player/PlayerUI.js';
 import { PlayerPlaylist } from './src/js/player/PlayerPlaylist.js';
+
+// Mount auth nav early
+AuthNav.mount();
 import {
   escapeHtml,
   sanitizeHtml,
@@ -65,6 +70,7 @@ class VideoPlayer {
     this.downloadLinks = document.getElementById('downloadLinks');
     this.shareBtn = document.getElementById('shareBtn');
     this.bookmarkBtn = document.getElementById('bookmarkBtn');
+    this.saveToCollectionBtn = document.getElementById('saveToCollectionBtn');
     this.downloadBtn = document.getElementById('downloadBtn');
     this.closeDownloads = document.getElementById('closeDownloads');
   }
@@ -75,6 +81,11 @@ class VideoPlayer {
 
     // Bookmark
     if (this.bookmarkBtn) this.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
+
+    // Save to collection
+    if (this.saveToCollectionBtn) {
+      this.saveToCollectionBtn.addEventListener('click', () => this.openCollectionPicker());
+    }
 
     // Downloads
     if (this.downloadBtn) this.downloadBtn.addEventListener('click', () => this.toggleDownloads());
@@ -585,6 +596,27 @@ class VideoPlayer {
     this.bookmarkBtn.innerHTML = isBookmarked
       ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L12 17.5L5 21V5Z"/></svg>'
       : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 5C5 3.89543 5.89543 3 7 3H17C18.1046 3 19 3.89543 19 5V21L12 17.5L5 21V5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  // ========================================
+  // Collections
+  // ========================================
+
+  openCollectionPicker() {
+    if (!this.videoId) return;
+    const title = this.videoTitle?.textContent || this.videoId;
+    const creator = this.videoCreator?.textContent || '';
+    CollectionPicker.open({
+      video: {
+        identifier: this.videoId,
+        title,
+        creator,
+        thumbnail: `https://archive.org/services/img/${this.videoId}`,
+      },
+      onChange: () => {
+        this.toast.show('Collection updated', 'success');
+      },
+    });
   }
 
   // ========================================

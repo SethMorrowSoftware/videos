@@ -33,6 +33,10 @@ import { RecommendedManager } from './src/js/components/RecommendedManager.js';
 import { FeaturedSectionsManager } from './src/js/components/FeaturedSectionsManager.js';
 import { Toast } from './src/js/components/Toast.js';
 import { LoadingSkeleton } from './src/js/components/LoadingSkeleton.js';
+import { AuthNav } from './src/js/components/AuthNav.js';
+
+// Mount auth nav as early as possible so the header doesn't flash empty
+AuthNav.mount();
 
 // Main Application Class
 class ArchiveVideoSearch {

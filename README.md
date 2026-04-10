@@ -89,6 +89,7 @@ mysql -u your_db_user -p your_database_name < db/migrations/001_initial_schema.s
 
 # Run additional migrations
 mysql -u your_db_user -p your_database_name < db/migrations/002_permanent_local_cache.sql
+mysql -u your_db_user -p your_database_name < db/migrations/003_user_accounts.sql
 ```
 
 Create an admin user programmatically:
@@ -197,6 +198,14 @@ videos/
 | `ENABLE_SEARCH_CACHING` | `true` | Enable search result caching |
 | `ENABLE_USER_SESSIONS` | `true` | Enable user session tracking |
 | `ENABLE_API_LOGGING` | `true` | Enable API request logging |
+| `APP_URL` | auto | Base URL used in email links (e.g. password reset) |
+| `MAIL_FROM` | - | From address for outgoing mail |
+| `MAIL_FROM_NAME` | site name | From name for outgoing mail |
+| `SMTP_HOST` | - | SMTP server (leave blank to use PHP mail()) |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USERNAME` | - | SMTP auth username |
+| `SMTP_PASSWORD` | - | SMTP auth password |
+| `SMTP_ENCRYPTION` | `tls` | `tls` (STARTTLS) or `ssl` |
 
 ### Cron Jobs (Optional)
 

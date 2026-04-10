@@ -2,100 +2,56 @@
 /**
  * Watch History API Endpoint
  *
- * GET: Returns user's watch history
- * POST: Update watch progress
+ * GET  ?action=list&limit=N   → recent watch history
+ * GET  ?action=progress&id=X  → saved progress for one video
+ * POST { action: 'update', id, currentTime, duration }
+ * POST { action: 'clear' }
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/UserService.php';
+$api = new ApiController();
+$api->requireMethod(['GET', 'POST']);
 
 $userService = new UserService();
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Get action
-    $action = $_GET['action'] ?? 'list';
+if ($api->isGet()) {
+    $action = $api->query('action', 'list');
 
-    switch ($action) {
-        case 'list':
-            $limit = min(100, max(1, (int)($_GET['limit'] ?? 50)));
-            $history = $userService->getWatchHistory($limit);
-
-            echo json_encode([
-                'success' => true,
-                'data' => $history,
-            ]);
-            break;
-
-        case 'progress':
-            $archiveId = $_GET['id'] ?? '';
-
-            if (empty($archiveId)) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing video ID']);
-                exit;
-            }
-
-            $progress = $userService->getProgress($archiveId);
-
-            echo json_encode([
-                'success' => true,
-                'data' => $progress,
-            ]);
-            break;
-
-        default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action']);
+    if ($action === 'list') {
+        $limit = min(100, max(1, (int)$api->query('limit', 50)));
+        $api->data($userService->getWatchHistory($limit));
     }
 
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Get POST data
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
-
-    if (!$data || !is_array($data)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid JSON data']);
-        exit;
+    if ($action === 'progress') {
+        $id = ApiController::sanitizeArchiveId($api->query('id', ''));
+        if ($id === '') {
+            $api->error('Missing video ID', 400);
+        }
+        $api->data($userService->getProgress($id));
     }
 
-    $action = $data['action'] ?? 'update';
+    $api->error('Invalid action', 400);
+}
 
-    switch ($action) {
-        case 'update':
-            if (empty($data['id'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing video ID']);
-                exit;
-            }
+// POST
+$body = $api->jsonBody();
+$action = $body['action'] ?? 'update';
 
-            $currentTime = (float)($data['currentTime'] ?? 0);
-            $duration = (float)($data['duration'] ?? 0);
+switch ($action) {
+    case 'update':
+        $id = ApiController::sanitizeArchiveId($api->required($body, 'id'));
+        $currentTime = (float)($body['currentTime'] ?? 0);
+        $duration = (float)($body['duration'] ?? 0);
+        $userService->updateProgress($id, $currentTime, $duration);
+        $api->ok(['message' => 'Progress updated']);
+        break;
 
-            $success = $userService->updateProgress($data['id'], $currentTime, $duration);
+    case 'clear':
+        $userService->clearWatchHistory();
+        $api->ok(['message' => 'History cleared']);
+        break;
 
-            echo json_encode([
-                'success' => $success,
-                'message' => 'Progress updated',
-            ]);
-            break;
-
-        case 'clear':
-            $success = $userService->clearWatchHistory();
-
-            echo json_encode([
-                'success' => $success,
-                'message' => 'History cleared',
-            ]);
-            break;
-
-        default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action']);
-    }
-
-} else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+    default:
+        $api->error('Invalid action', 400);
 }
