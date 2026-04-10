@@ -73,7 +73,13 @@ Visit `https://yourdomain.com/install.php` in your browser. The setup wizard wil
 3. Create your admin account
 4. Verify the installation
 
-> **Important:** Delete `install.php` after setup is complete.
+> **Important — do one of the following after setup:**
+>
+> 1. **Delete `install.php`** from the server (recommended), **or**
+> 2. Open `.htaccess` and **uncomment the `<FilesMatch "^install\.php$">` deny block** near the bottom.
+>
+> The installer also refuses to re-run once an admin user exists in the
+> database, but these web-server-level locks are the safest backstop.
 
 ### 4. Access the Admin Panel
 

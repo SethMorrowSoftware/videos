@@ -819,3 +819,15 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 export default ArchiveVideoSearch;
+
+// Service worker registration.
+// Using a relative URL ('sw.js') means a /films/ subdirectory install registers
+// /films/sw.js with scope /films/ automatically. Do not change to a leading-slash
+// path -- that would break subdirectory deployments.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((err) => {
+      console.warn('[SW] Registration failed:', err);
+    });
+  });
+}

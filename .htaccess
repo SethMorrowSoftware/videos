@@ -55,6 +55,21 @@
     Deny from all
 </FilesMatch>
 
+# AFTER INSTALL: either delete install.php, or uncomment this block to lock
+# it down at the web-server level. The installer also has an in-script guard
+# that refuses to run once an admin exists, but belt-and-suspenders is best.
+#<FilesMatch "^install\.php$">
+#    Order allow,deny
+#    Deny from all
+#</FilesMatch>
+
+# Block direct access to the beta-readiness tracker and any stray markdown
+# docs -- they are for developers, not visitors.
+<FilesMatch "\.(md|sql|log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
 # Deny access to directories
 <IfModule mod_autoindex.c>
     Options -Indexes
