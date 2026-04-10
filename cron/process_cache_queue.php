@@ -6,8 +6,11 @@
  * Run this cron job periodically to process the background cache queue.
  * Recommended: Every 5 minutes during active hours, every 15 minutes otherwise.
  *
- * Example crontab entry:
- * */5 * * * * php /path/to/videos/cron/process_cache_queue.php >> /path/to/logs/cache_queue.log 2>&1
+ * Example crontab entry (note: the slash-star is escaped in this comment to
+ * avoid prematurely closing the docblock — when adding to crontab use the
+ * standard syntax without the space):
+ *
+ *   * / 5 * * * * php /path/to/videos/cron/process_cache_queue.php >> /path/to/logs/cache_queue.log 2>&1
  */
 
 // Prevent web access - CLI only for security

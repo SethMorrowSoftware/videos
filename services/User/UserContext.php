@@ -132,12 +132,12 @@ class UserContext {
         );
 
         if (!$token) {
-            setcookie(self::REMEMBER_COOKIE, '', time() - 3600, '/');
+            setcookie(self::REMEMBER_COOKIE, '', time() - 3600, app_cookie_path());
             return null;
         }
         if (strtotime($token['expires_at']) < time()) {
             $db->delete('user_auth_tokens', 'token_hash = ?', [$hash]);
-            setcookie(self::REMEMBER_COOKIE, '', time() - 3600, '/');
+            setcookie(self::REMEMBER_COOKIE, '', time() - 3600, app_cookie_path());
             return null;
         }
 

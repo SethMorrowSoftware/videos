@@ -6,7 +6,9 @@
  */
 
 export class ApiService {
-    static BASE_URL = '/api';
+    // Relative path so subdirectory deployments (e.g. /films/ on cPanel)
+    // resolve correctly against document.baseURI.
+    static BASE_URL = 'api';
 
     /**
      * Search for videos using the cached search endpoint

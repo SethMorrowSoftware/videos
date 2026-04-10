@@ -79,6 +79,26 @@ spl_autoload_register(function ($class) {
 // SESSION
 // =====================================================
 
+/**
+ * Compute the cookie path for this install. Scopes session + auth
+ * cookies to the install directory so two installs on the same
+ * domain (e.g. /films/ and /shorts/) don't stomp on each other, and
+ * so links in a /films/ install don't leak cookies to a sibling
+ * /shorts/ install. Used by bootstrap.php, UserContext, UserAuthService,
+ * and AdminAuthService.
+ */
+function app_cookie_path(): string {
+    $script = $_SERVER['SCRIPT_NAME'] ?? '/';
+    $path = rtrim(str_replace('\\', '/', dirname($script)), '/');
+    // API endpoints live one level deeper; strip /api[/...] so cookies
+    // are set at the install root and are visible everywhere in the app.
+    if (preg_match('#^(.*)/api(/.*)?$#', $path, $m)) {
+        $path = $m[1];
+    }
+    if ($path === '' || $path === false) return '/';
+    return substr($path, -1) === '/' ? $path : $path . '/';
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     // Harden session cookie for auth use
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
@@ -86,7 +106,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
     session_set_cookie_params([
         'lifetime' => 0,
-        'path' => '/',
+        'path' => app_cookie_path(),
         'domain' => '',
         'secure' => $secure,
         'httponly' => true,

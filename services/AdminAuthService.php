@@ -212,7 +212,8 @@ class AdminAuthService {
             try {
                 $this->db->delete('user_auth_tokens', 'token_hash = ?', [$hash]);
             } catch (Throwable $e) { /* table may not exist yet */ }
-            setcookie('afc_remember', '', time() - 3600, '/');
+            $path = function_exists('app_cookie_path') ? app_cookie_path() : '/';
+            setcookie('afc_remember', '', time() - 3600, $path);
         }
 
         unset(

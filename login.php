@@ -8,15 +8,35 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
+/**
+ * Whitelist a user-supplied "next" redirect target. Only same-origin
+ * relative paths are allowed — anything that could redirect off-site
+ * (protocol-relative //host, absolute https://, or backslashes that
+ * some browsers treat as slashes) collapses to index.php.
+ */
+function afc_safe_next(?string $next): string {
+    if ($next === null || $next === '') return 'index.php';
+    // Strip whitespace that could trick some browsers.
+    $next = trim($next);
+    if ($next === '') return 'index.php';
+    // Reject protocol-relative //host and absolute URLs.
+    if (strpos($next, '//') === 0) return 'index.php';
+    if (strpos($next, '\\\\') === 0) return 'index.php';
+    if (preg_match('#^[a-z][a-z0-9+.\-]*:#i', $next)) return 'index.php';
+    // Reject backslashes anywhere (some browsers normalize to /).
+    if (strpos($next, '\\') !== false) return 'index.php';
+    // Only allow URL-safe characters in paths/queries/fragments. Use `~`
+    // as the delimiter so `#` can appear unescaped inside the character
+    // class (for URL fragments).
+    if (!preg_match('~^/?[A-Za-z0-9_\-./?=&\#%]+$~', $next)) return 'index.php';
+    return $next;
+}
+
 // If already logged in, bounce to the "next" URL (or home)
 $context = new UserContext();
 $current = $context->current();
 if ($current && empty($current['is_guest'])) {
-    $next = isset($_GET['next']) ? (string)$_GET['next'] : 'index.php';
-    // Only allow relative redirects
-    if (!preg_match('#^/?[a-z0-9_\-./?=&#]+$#i', $next)) {
-        $next = 'index.php';
-    }
+    $next = afc_safe_next($_GET['next'] ?? null);
     header('Location: ' . $next);
     exit;
 }
@@ -163,10 +183,22 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
           mergeGuest: mergeCheckbox ? mergeCheckbox.checked : true,
         });
 
-        // Redirect to ?next or index
+        // Redirect to ?next or index, but only if ?next is a safe
+        // same-origin relative path (mirrors afc_safe_next() server-side
+        // to prevent open-redirect attacks).
         const params = new URLSearchParams(window.location.search);
-        const next = params.get('next') || 'index.php';
-        window.location.href = next;
+        const rawNext = params.get('next') || '';
+        const safeNext = (function(n) {
+          if (!n) return 'index.php';
+          n = n.trim();
+          if (!n) return 'index.php';
+          if (n.startsWith('//') || n.startsWith('\\\\')) return 'index.php';
+          if (/^[a-z][a-z0-9+.\-]*:/i.test(n)) return 'index.php';
+          if (n.indexOf('\\') !== -1) return 'index.php';
+          if (!/^\/?[a-z0-9_\-./?=&#%]+$/i.test(n)) return 'index.php';
+          return n;
+        })(rawNext);
+        window.location.href = safeNext;
       } catch (err) {
         showError(err.message || 'Sign in failed');
         submit.disabled = false;
