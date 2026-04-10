@@ -8,8 +8,12 @@ import { PlaylistService } from './src/js/services/PlaylistService.js';
 import { VideoProgressTracker } from './src/js/services/VideoProgressTracker.js';
 import { BookmarkManager } from './src/js/services/BookmarkManager.js';
 import { Toast } from './src/js/components/Toast.js';
+import { AuthNav } from './src/js/components/AuthNav.js';
 import { PlayerUI } from './src/js/player/PlayerUI.js';
 import { PlayerPlaylist } from './src/js/player/PlayerPlaylist.js';
+
+// Mount auth nav early
+AuthNav.mount();
 import {
   escapeHtml,
   sanitizeHtml,
