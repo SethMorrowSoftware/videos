@@ -15,15 +15,35 @@ class AdminAuthService {
     }
 
     /**
-     * Authenticate admin user
+     * Authenticate admin user.
+     *
+     * After migration 003 the canonical store is `users` (role = admin|editor).
+     * We check that first and fall back to legacy `admin_users` for sites that
+     * haven't run the migration yet.
      */
     public function authenticate(string $username, string $password): ?array {
+        // New unified users table
         $user = $this->db->fetchOne(
-            "SELECT id, username, password_hash, role FROM admin_users WHERE username = ?",
+            "SELECT id, username, email, password_hash, role
+             FROM users
+             WHERE username = ? AND is_guest = 0 AND role IN ('admin','editor')",
             [$username]
         );
 
+        // Legacy admin_users fallback (pre-migration)
         if (!$user) {
+            $user = $this->db->fetchOne(
+                "SELECT id, username, password_hash, role FROM admin_users WHERE username = ?",
+                [$username]
+            );
+            if ($user && password_verify($password, $user['password_hash'])) {
+                $this->db->query(
+                    "UPDATE admin_users SET last_login = NOW() WHERE id = ?",
+                    [$user['id']]
+                );
+                unset($user['password_hash']);
+                return $user;
+            }
             return null;
         }
 
@@ -31,13 +51,7 @@ class AdminAuthService {
             return null;
         }
 
-        // Update last login
-        $this->db->query(
-            "UPDATE admin_users SET last_login = NOW() WHERE id = ?",
-            [$user['id']]
-        );
-
-        // Don't return password hash
+        $this->db->query("UPDATE users SET last_seen = NOW() WHERE id = ?", [$user['id']]);
         unset($user['password_hash']);
         return $user;
     }
@@ -128,22 +142,42 @@ class AdminAuthService {
     }
 
     /**
-     * Validate session
+     * Validate session — recognizes both the legacy admin session
+     * ($_SESSION['admin_user_id']) and the new unified session
+     * ($_SESSION['user_id']) set by UserAuthService::login().
+     *
+     * Returns the user row (without password hash) if the caller is an
+     * admin or editor, null otherwise.
      */
     public function validateSession(): ?array {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
 
-        if (empty($_SESSION['admin_user_id'])) {
-            return null;
+        // New unified session (Phase 2+)
+        if (!empty($_SESSION['user_id'])) {
+            $user = $this->db->fetchOne(
+                "SELECT id, username, email, role FROM users
+                 WHERE id = ? AND is_guest = 0 AND role IN ('admin','editor')",
+                [(int)$_SESSION['user_id']]
+            );
+            if ($user) return $user;
         }
 
-        return $this->getUser($_SESSION['admin_user_id']);
+        // Legacy admin session
+        if (!empty($_SESSION['admin_user_id'])) {
+            return $this->getUser((int)$_SESSION['admin_user_id']);
+        }
+
+        return null;
     }
 
     /**
-     * Start admin session
+     * Start admin session.
+     *
+     * Sets both the new unified session keys ($_SESSION['user_id'])
+     * and the legacy admin-only keys so callers that haven't been
+     * migrated yet continue to work.
      */
     public function startSession(array $user): void {
         if (session_status() === PHP_SESSION_NONE) {
@@ -153,24 +187,42 @@ class AdminAuthService {
         // Regenerate session ID to prevent session fixation attacks
         session_regenerate_id(true);
 
-        $_SESSION['admin_user_id'] = $user['id'];
+        $_SESSION['user_id'] = (int)$user['id'];
+        $_SESSION['user_role'] = $user['role'];
+
+        // Legacy keys (kept for admin.php backward compat)
+        $_SESSION['admin_user_id'] = (int)$user['id'];
         $_SESSION['admin_username'] = $user['username'];
         $_SESSION['admin_role'] = $user['role'];
         $_SESSION['admin_logged_in'] = true;
     }
 
     /**
-     * End admin session
+     * End admin session (clears both legacy and new session keys,
+     * plus any remember-me cookie).
      */
     public function endSession(): void {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
 
-        unset($_SESSION['admin_user_id']);
-        unset($_SESSION['admin_username']);
-        unset($_SESSION['admin_role']);
-        unset($_SESSION['admin_logged_in']);
+        // Kill any remember-me cookie + token
+        if (!empty($_COOKIE['afc_remember'])) {
+            $hash = hash('sha256', $_COOKIE['afc_remember']);
+            try {
+                $this->db->delete('user_auth_tokens', 'token_hash = ?', [$hash]);
+            } catch (Throwable $e) { /* table may not exist yet */ }
+            setcookie('afc_remember', '', time() - 3600, '/');
+        }
+
+        unset(
+            $_SESSION['user_id'],
+            $_SESSION['user_role'],
+            $_SESSION['admin_user_id'],
+            $_SESSION['admin_username'],
+            $_SESSION['admin_role'],
+            $_SESSION['admin_logged_in']
+        );
 
         session_destroy();
     }
