@@ -80,6 +80,7 @@ if (!function_exists('escapeAttr')) {
               </div>
               <div class="header-auth-menu-divider"></div>
               <a href="account.php" role="menuitem">Account</a>
+              <a href="collections.php" role="menuitem">My collections</a>
               <a href="index.php#bookmarks" role="menuitem">My bookmarks</a>
               <?php if (in_array($currentUser['role'] ?? '', ['admin', 'editor'], true)): ?>
                 <a href="admin.php" role="menuitem">Admin</a>

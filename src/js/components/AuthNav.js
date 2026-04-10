@@ -47,6 +47,7 @@ function renderSignedIn(user) {
         </div>
         <div class="header-auth-menu-divider"></div>
         <a href="account.php" role="menuitem">Account</a>
+        <a href="collections.php" role="menuitem">My collections</a>
         <a href="index.php" role="menuitem">Home</a>
         ${isAdmin ? `<a href="admin.php" role="menuitem">Admin</a>` : ''}
         <div class="header-auth-menu-divider"></div>
