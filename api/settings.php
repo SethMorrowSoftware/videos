@@ -2,65 +2,93 @@
 /**
  * Settings API Endpoint
  *
- * GET: Returns site settings
- * POST: Updates site settings (requires admin authentication)
+ * GET  → public site settings
+ * POST → update settings (admin only)
+ *
+ * Validation rules (previously in save-settings.php) live here so there's
+ * exactly one path for admin settings writes.
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/SettingsService.php';
-require_once __DIR__ . '/../services/AdminAuthService.php';
+$api = new ApiController();
+$api->requireMethod(['GET', 'POST']);
 
 $settingsService = new SettingsService();
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Public endpoint - return settings
-    $settings = $settingsService->getSettings();
-
-    header('Cache-Control: public, max-age=3600'); // 1 hour cache
-    echo json_encode([
-        'success' => true,
-        'data' => $settings,
-    ]);
-
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Admin only - update settings
-    $authService = new AdminAuthService();
-    $admin = $authService->validateSession();
-
-    if (!$admin) {
-        http_response_code(401);
-        echo json_encode(['error' => 'Authentication required']);
-        exit;
-    }
-
-    // Get POST data
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
-
-    if (!$data || !is_array($data)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid JSON data']);
-        exit;
-    }
-
-    // Update settings
-    $success = $settingsService->updateSettings($data);
-
-    if ($success) {
-        echo json_encode([
-            'success' => true,
-            'message' => 'Settings updated successfully',
-        ]);
-    } else {
-        http_response_code(500);
-        echo json_encode([
-            'success' => false,
-            'error' => 'Failed to update settings',
-        ]);
-    }
-
-} else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+if ($api->isGet()) {
+    header('Cache-Control: public, max-age=3600');
+    $api->data($settingsService->getSettings());
 }
+
+// POST
+$api->requireAdmin();
+$body = $api->jsonBody();
+
+// Allow-list of settings with validation rules.
+$schema = [
+    'siteName' => ['type' => 'string', 'default' => 'Archive Film Club', 'maxLength' => 100],
+    'tagline' => ['type' => 'string', 'default' => 'Discover classic films from Archive.org', 'maxLength' => 200],
+    'brandColor' => ['type' => 'color', 'default' => '#ff0000'],
+    'accentColor' => ['type' => 'color', 'default' => '#065fd4'],
+    'defaultTheme' => ['type' => 'enum', 'default' => 'dark', 'values' => ['dark', 'light', 'system']],
+    'enableThemeToggle' => ['type' => 'bool', 'default' => true],
+    'headerStyle' => ['type' => 'enum', 'default' => 'default', 'values' => ['default', 'minimal', 'centered']],
+    'cardStyle' => ['type' => 'enum', 'default' => 'modern', 'values' => ['modern', 'classic', 'compact']],
+    'showDownloadCount' => ['type' => 'bool', 'default' => true],
+    'showCreator' => ['type' => 'bool', 'default' => true],
+    'showDate' => ['type' => 'bool', 'default' => true],
+    'enableBookmarks' => ['type' => 'bool', 'default' => false],
+    'enableWatchHistory' => ['type' => 'bool', 'default' => true],
+    'defaultCollection' => ['type' => 'string', 'default' => 'all_videos', 'maxLength' => 50],
+    'defaultSort' => ['type' => 'enum', 'default' => 'downloads', 'values' => ['downloads', 'date', 'title', 'relevance', 'creator']],
+];
+
+$clean = [];
+foreach ($schema as $key => $rule) {
+    if (!array_key_exists($key, $body)) {
+        $clean[$key] = $rule['default'];
+        continue;
+    }
+    $value = $body[$key];
+    switch ($rule['type']) {
+        case 'string':
+            $clean[$key] = ApiController::sanitizeText($value, $rule['maxLength'] ?? 200);
+            break;
+        case 'color':
+            $clean[$key] = ApiController::sanitizeHexColor($value, $rule['default']);
+            break;
+        case 'bool':
+            $clean[$key] = ApiController::sanitizeBool($value);
+            break;
+        case 'enum':
+            $clean[$key] = ApiController::sanitizeEnum($value, $rule['values'], $rule['default']);
+            break;
+        default:
+            $clean[$key] = $rule['default'];
+    }
+}
+$clean['updated'] = date('c');
+
+// Persist to database
+$dbSaveSuccess = false;
+try {
+    $dbSaveSuccess = $settingsService->updateSettings($clean);
+} catch (Throwable $e) {
+    error_log('[api/settings] DB save failed: ' . $e->getMessage());
+}
+
+// Best-effort JSON fallback for sites without DB
+$jsonPath = base_path('site-settings.json');
+@file_put_contents($jsonPath, json_encode($clean, JSON_PRETTY_PRINT));
+@chmod($jsonPath, 0644);
+
+if (!$dbSaveSuccess && !file_exists($jsonPath)) {
+    $api->error('Failed to save settings', 500);
+}
+
+$api->ok([
+    'message' => 'Settings saved successfully',
+    'data' => $clean,
+    'database' => $dbSaveSuccess,
+]);

@@ -2,109 +2,61 @@
 /**
  * Bookmarks API Endpoint
  *
- * GET: Returns user's bookmarks
- * POST: Add/remove/sync bookmarks
+ * GET             → list current user's bookmarks
+ * POST { action } → add | remove | sync | check
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/UserService.php';
+$api = new ApiController();
+$api->requireMethod(['GET', 'POST']);
 
 $userService = new UserService();
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Get user bookmarks
-    $bookmarks = $userService->getBookmarks();
+if ($api->isGet()) {
+    $api->data($userService->getBookmarks());
+}
 
-    echo json_encode([
-        'success' => true,
-        'data' => $bookmarks,
-    ]);
+// POST
+$body = $api->jsonBody();
+$action = $body['action'] ?? 'add';
 
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Get POST data
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
+switch ($action) {
+    case 'add':
+        $id = ApiController::sanitizeArchiveId($api->required($body, 'id'));
+        $success = $userService->addBookmark($id, [
+            'title' => ApiController::sanitizeText($body['title'] ?? null, 500),
+            'creator' => ApiController::sanitizeText($body['creator'] ?? null, 255),
+            'thumbnail' => $body['thumbnail'] ?? null,
+        ]);
+        $api->ok([
+            'added' => $success,
+            'message' => $success ? 'Bookmark added' : 'Already bookmarked',
+        ]);
+        break;
 
-    if (!$data || !is_array($data)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid JSON data']);
-        exit;
-    }
+    case 'remove':
+        $id = ApiController::sanitizeArchiveId($api->required($body, 'id'));
+        $userService->removeBookmark($id);
+        $api->ok(['message' => 'Bookmark removed']);
+        break;
 
-    $action = $data['action'] ?? 'add';
+    case 'sync':
+        if (!isset($body['bookmarks']) || !is_array($body['bookmarks'])) {
+            $api->error('Missing bookmarks array', 400);
+        }
+        $success = $userService->syncBookmarks($body['bookmarks']);
+        if (!$success) {
+            $api->error('Sync failed', 500);
+        }
+        $api->ok(['message' => 'Bookmarks synced']);
+        break;
 
-    switch ($action) {
-        case 'add':
-            if (empty($data['id'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing video ID']);
-                exit;
-            }
+    case 'check':
+        $id = ApiController::sanitizeArchiveId($api->required($body, 'id'));
+        $api->ok(['bookmarked' => $userService->isBookmarked($id)]);
+        break;
 
-            $success = $userService->addBookmark($data['id'], [
-                'title' => $data['title'] ?? null,
-                'creator' => $data['creator'] ?? null,
-                'thumbnail' => $data['thumbnail'] ?? null,
-            ]);
-
-            echo json_encode([
-                'success' => $success,
-                'message' => $success ? 'Bookmark added' : 'Already bookmarked',
-            ]);
-            break;
-
-        case 'remove':
-            if (empty($data['id'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing video ID']);
-                exit;
-            }
-
-            $success = $userService->removeBookmark($data['id']);
-
-            echo json_encode([
-                'success' => $success,
-                'message' => 'Bookmark removed',
-            ]);
-            break;
-
-        case 'sync':
-            if (!isset($data['bookmarks']) || !is_array($data['bookmarks'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing bookmarks array']);
-                exit;
-            }
-
-            $success = $userService->syncBookmarks($data['bookmarks']);
-
-            echo json_encode([
-                'success' => $success,
-                'message' => $success ? 'Bookmarks synced' : 'Sync failed',
-            ]);
-            break;
-
-        case 'check':
-            if (empty($data['id'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing video ID']);
-                exit;
-            }
-
-            $isBookmarked = $userService->isBookmarked($data['id']);
-
-            echo json_encode([
-                'success' => true,
-                'bookmarked' => $isBookmarked,
-            ]);
-            break;
-
-        default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action']);
-    }
-
-} else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+    default:
+        $api->error('Invalid action', 400);
 }

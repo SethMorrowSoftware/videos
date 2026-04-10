@@ -2,117 +2,76 @@
 /**
  * User API Endpoint
  *
- * Manages user sessions and preferences
+ * GET  ?action=info         → current session user info + preferences
+ * GET  ?action=preferences  → just preferences
+ * GET  ?action=searches     → recent search history
+ * POST { action: 'preferences', preferences: {...} }
+ * POST { action: 'preference', key, value }
+ * POST { action: 'clearSearches' }
  */
 
-header('Content-Type: application/json');
+require_once __DIR__ . '/../bootstrap.php';
 
-require_once __DIR__ . '/../services/UserService.php';
+$api = new ApiController();
+$api->requireMethod(['GET', 'POST']);
 
 $userService = new UserService();
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    // Get user data
-    $action = $_GET['action'] ?? 'info';
+if ($api->isGet()) {
+    $action = $api->query('action', 'info');
 
     switch ($action) {
         case 'info':
-            // Get or create user
-            $userId = $userService->getOrCreateUser();
-            $prefs = $userService->getPreferences();
-
-            echo json_encode([
-                'success' => true,
-                'data' => [
-                    'hasSession' => true,
-                    'preferences' => $prefs,
-                ],
+            $userService->getOrCreateUser();
+            $api->data([
+                'hasSession' => true,
+                'preferences' => $userService->getPreferences(),
             ]);
             break;
 
         case 'preferences':
-            $prefs = $userService->getPreferences();
-
-            echo json_encode([
-                'success' => true,
-                'data' => $prefs,
-            ]);
+            $api->data($userService->getPreferences());
             break;
 
         case 'searches':
-            $limit = min(50, max(1, (int)($_GET['limit'] ?? 10)));
-            $searches = $userService->getRecentSearches($limit);
-
-            echo json_encode([
-                'success' => true,
-                'data' => $searches,
-            ]);
+            $limit = min(50, max(1, (int)$api->query('limit', 10)));
+            $api->data($userService->getRecentSearches($limit));
             break;
 
         default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action']);
+            $api->error('Invalid action', 400);
     }
+}
 
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Update user data
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
+// POST
+$body = $api->jsonBody();
+$action = $body['action'] ?? 'preferences';
 
-    if (!$data || !is_array($data)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid JSON data']);
-        exit;
-    }
+switch ($action) {
+    case 'preferences':
+        if (!isset($body['preferences']) || !is_array($body['preferences'])) {
+            $api->error('Missing preferences', 400);
+        }
+        $userService->setPreferences($body['preferences']);
+        $api->ok(['message' => 'Preferences updated']);
+        break;
 
-    $action = $data['action'] ?? 'preferences';
+    case 'preference':
+        if (!isset($body['key'])) {
+            $api->error('Missing key', 400);
+        }
+        if (!array_key_exists('value', $body)) {
+            $api->error('Missing value', 400);
+        }
+        $userService->setPreference($body['key'], $body['value']);
+        $api->ok(['message' => 'Preference updated']);
+        break;
 
-    switch ($action) {
-        case 'preferences':
-            if (!isset($data['preferences']) || !is_array($data['preferences'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing preferences']);
-                exit;
-            }
+    case 'clearSearches':
+        $userService->clearSearchHistory();
+        $api->ok(['message' => 'Search history cleared']);
+        break;
 
-            $success = $userService->setPreferences($data['preferences']);
-
-            echo json_encode([
-                'success' => $success,
-                'message' => 'Preferences updated',
-            ]);
-            break;
-
-        case 'preference':
-            if (!isset($data['key']) || !isset($data['value'])) {
-                http_response_code(400);
-                echo json_encode(['error' => 'Missing key or value']);
-                exit;
-            }
-
-            $success = $userService->setPreference($data['key'], $data['value']);
-
-            echo json_encode([
-                'success' => $success,
-                'message' => 'Preference updated',
-            ]);
-            break;
-
-        case 'clearSearches':
-            $success = $userService->clearSearchHistory();
-
-            echo json_encode([
-                'success' => $success,
-                'message' => 'Search history cleared',
-            ]);
-            break;
-
-        default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action']);
-    }
-
-} else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
+    default:
+        $api->error('Invalid action', 400);
 }

@@ -2758,7 +2758,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
             showToast('Saving staff picks...', 'saving', 2000);
 
             try {
-                const response = await fetch('save-recommendations.php', {
+                const response = await fetch('api/recommendations.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2804,7 +2804,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
             showToast('Saving settings...', 'saving', 2000);
 
             try {
-                const response = await fetch('save-settings.php', {
+                const response = await fetch('api/settings.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(settings)
@@ -3321,7 +3321,7 @@ if (empty($featured_sections) && file_exists($sections_file)) {
             showToast('Saving sections...', 'saving', 2000);
 
             try {
-                const response = await fetch('save-featured-sections.php', {
+                const response = await fetch('api/sections.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sections: featuredSections })
