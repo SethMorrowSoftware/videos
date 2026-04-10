@@ -5,7 +5,9 @@
  * success payload and throw on error.
  */
 
-const BASE = '/api/collections.php';
+// Relative path so subdirectory deployments (e.g. /films/ on cPanel)
+// resolve correctly against document.baseURI.
+const BASE = 'api/collections.php';
 
 class CollectionApiError extends Error {
   constructor(message, status) {

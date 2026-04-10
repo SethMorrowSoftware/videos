@@ -150,7 +150,7 @@ class UserAuthService {
         if (!empty($_COOKIE[UserContext::REMEMBER_COOKIE])) {
             $hash = hash('sha256', $_COOKIE[UserContext::REMEMBER_COOKIE]);
             $this->db->delete('user_auth_tokens', 'token_hash = ?', [$hash]);
-            setcookie(UserContext::REMEMBER_COOKIE, '', time() - 3600, '/');
+            setcookie(UserContext::REMEMBER_COOKIE, '', time() - 3600, app_cookie_path());
         }
 
         unset($_SESSION['user_id'], $_SESSION['user_role']);
@@ -302,7 +302,7 @@ class UserAuthService {
             $rawToken,
             [
                 'expires' => time() + (self::REMEMBER_TTL_DAYS * 86400),
-                'path' => '/',
+                'path' => app_cookie_path(),
                 'secure' => $secure,
                 'httponly' => true,
                 'samesite' => 'Lax',

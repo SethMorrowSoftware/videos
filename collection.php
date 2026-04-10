@@ -209,8 +209,12 @@ $ogDescription = $collection && $collection['description']
     const COLLECTION_ID = <?= (int)$collection['id'] ?>;
     const OWNER_MODE = <?= $ownerMode ? 'true' : 'false' ?>;
     const IS_PUBLIC = <?= $collection['is_public'] ? 'true' : 'false' ?>;
+    <?php
+      // Compute install base path so share URLs work in subdirectory deployments.
+      $installBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+    ?>
     const SHARE_URL = <?= json_encode($collection['is_public']
-        ? '/collection.php?u=' . $owner['username'] . '&s=' . $collection['slug']
+        ? $installBase . '/collection.php?u=' . $owner['username'] . '&s=' . $collection['slug']
         : null) ?>;
 
     // Share button

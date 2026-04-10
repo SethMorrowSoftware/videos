@@ -89,28 +89,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     elseif ($step === 2) {
-        // Step 2: Run database migrations
+        // Step 2: Run ALL database migrations (001 → latest)
         try {
             require_once __DIR__ . '/db/Database.php';
             $db = Database::getInstance();
 
-            // Read and execute migration file
-            $migrationFile = __DIR__ . '/db/migrations/001_initial_schema.sql';
-            if (!file_exists($migrationFile)) {
-                throw new Exception('Migration file not found');
+            $migrationsDir = __DIR__ . '/db/migrations';
+            $migrationFiles = glob($migrationsDir . '/*.sql');
+            if (!$migrationFiles) {
+                throw new Exception('No migration files found');
             }
+            sort($migrationFiles); // 001_*, 002_*, 003_*, 004_*
 
-            $sql = file_get_contents($migrationFile);
+            foreach ($migrationFiles as $migrationFile) {
+                $sql = file_get_contents($migrationFile);
 
-            // Split into individual statements
-            $statements = array_filter(
-                array_map('trim', explode(';', $sql)),
-                function($s) { return !empty($s) && $s !== ''; }
-            );
+                // Split into individual statements
+                $statements = array_filter(
+                    array_map('trim', explode(';', $sql)),
+                    function($s) { return !empty($s); }
+                );
 
-            foreach ($statements as $statement) {
-                if (!empty(trim($statement))) {
-                    $db->query($statement);
+                foreach ($statements as $statement) {
+                    if (empty(trim($statement))) continue;
+                    try {
+                        $db->query($statement);
+                    } catch (Throwable $e) {
+                        // Swallow "already exists / duplicate column" errors
+                        // so re-runs and partially-applied migrations don't
+                        // block the installer.
+                        $msg = $e->getMessage();
+                        if (stripos($msg, 'already exists') === false
+                            && stripos($msg, 'Duplicate column') === false
+                            && stripos($msg, 'Duplicate key name') === false
+                            && stripos($msg, 'Multiple primary key') === false) {
+                            throw $e;
+                        }
+                    }
                 }
             }
 
@@ -123,7 +138,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     elseif ($step === 3) {
-        // Step 3: Create admin user
+        // Step 3: Create admin user in the unified `users` table
+        // (migration 003). This matches what UserAuthService::login() reads
+        // from, so the same credentials work for both admin.php and the
+        // front-end login flow.
         $username = trim($_POST['admin_user'] ?? '');
         $password = $_POST['admin_pass'] ?? '';
         $passwordConfirm = $_POST['admin_pass_confirm'] ?? '';
@@ -137,19 +155,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Password must be at least 8 characters.';
         } else {
             try {
-                require_once __DIR__ . '/services/AdminAuthService.php';
-                $authService = new AdminAuthService();
+                require_once __DIR__ . '/db/Database.php';
+                $db = Database::getInstance();
 
-                // Check if admin exists
-                if ($authService->hasAdminUsers()) {
+                // Reject if an admin account already exists in either table.
+                $existingUnified = $db->fetchColumn(
+                    "SELECT COUNT(*) FROM users WHERE role IN ('admin','editor') AND is_guest = 0"
+                );
+                $existingLegacy = 0;
+                try {
+                    $existingLegacy = $db->fetchColumn("SELECT COUNT(*) FROM admin_users");
+                } catch (Throwable $e) { /* table may have been dropped */ }
+
+                if ((int)$existingUnified > 0 || (int)$existingLegacy > 0) {
                     $error = 'An admin user already exists.';
                 } else {
-                    $userId = $authService->createUser($username, $password, $email, 'admin');
-                    if ($userId) {
+                    // Uniqueness guard on username inside `users`.
+                    $collision = $db->fetchOne(
+                        "SELECT id FROM users WHERE username = ?",
+                        [$username]
+                    );
+                    if ($collision) {
+                        $error = 'That username is already taken.';
+                    } else {
+                        $hash = password_hash($password, PASSWORD_DEFAULT);
+                        $db->insert('users', [
+                            'username'      => $username,
+                            'email'         => $email !== '' ? $email : null,
+                            'password_hash' => $hash,
+                            'display_name'  => $username,
+                            'role'          => 'admin',
+                            'is_guest'      => 0,
+                            'session_id'    => null,
+                            'preferences'   => '{}',
+                        ]);
+
                         header('Location: install.php?step=4');
                         exit;
-                    } else {
-                        $error = 'Failed to create admin user.';
                     }
                 }
             } catch (Exception $e) {

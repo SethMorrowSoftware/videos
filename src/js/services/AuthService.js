@@ -10,7 +10,9 @@
  *   error   → { success: false, error: "...", ?errors: {...} }
  */
 
-const AUTH_BASE = '/api/auth';
+// Relative path so subdirectory deployments (e.g. /films/ on cPanel)
+// resolve correctly against document.baseURI.
+const AUTH_BASE = 'api/auth';
 
 /**
  * Typed error we can throw from network calls, carrying the raw

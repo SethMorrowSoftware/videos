@@ -153,7 +153,7 @@ class MailService {
         };
 
         $expect('220');
-        $hostname = $_SERVER['SERVER_NAME'] ?? 'localhost';
+        $hostname = $this->stripCrlf($this->safeHost());
         $write("EHLO $hostname");
         $expect('250');
 
@@ -176,7 +176,11 @@ class MailService {
             $expect('235');
         }
 
-        $from = getenv('MAIL_FROM') ?: ('noreply@' . ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+        $envFrom = getenv('MAIL_FROM') ?: ('noreply@' . $this->safeHost());
+        $from = $this->stripCrlf($envFrom);
+        if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
+            $from = 'noreply@' . $this->safeHost();
+        }
         $write("MAIL FROM:<$from>");
         $expect('250');
         $write("RCPT TO:<$to>");
@@ -209,21 +213,82 @@ class MailService {
     }
 
     private function fromHeader(): string {
-        $from = getenv('MAIL_FROM') ?: ('noreply@' . ($_SERVER['SERVER_NAME'] ?? 'localhost'));
-        $name = getenv('MAIL_FROM_NAME') ?: $this->siteName();
-        return "\"" . addslashes($name) . "\" <$from>";
+        $rawFrom = getenv('MAIL_FROM') ?: ('noreply@' . $this->safeHost());
+        $rawName = getenv('MAIL_FROM_NAME') ?: $this->siteName();
+
+        // Strip any CR/LF to prevent header injection via env or
+        // user-controlled display names. addslashes() does NOT handle
+        // newlines, so we must do this explicitly.
+        $from = $this->stripCrlf($rawFrom);
+        $name = $this->stripCrlf($rawName);
+
+        // Also reject an address that failed email validation — a bad
+        // MAIL_FROM env would otherwise land verbatim in the From header.
+        if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
+            $from = 'noreply@' . $this->safeHost();
+        }
+
+        // Double-quote escape for the display name (backslash-escape any
+        // embedded double quotes and backslashes, per RFC 5322 quoted-string).
+        $escapedName = str_replace(['\\', '"'], ['\\\\', '\\"'], $name);
+        return '"' . $escapedName . "\" <$from>";
+    }
+
+    /**
+     * Strip CR/LF (and NUL) from a header-bound string to prevent
+     * header-injection attacks.
+     */
+    private function stripCrlf(string $value): string {
+        return str_replace(["\r", "\n", "\0"], '', $value);
+    }
+
+    /**
+     * A hostname safe to use in From addresses / base URLs. Prefers
+     * APP_URL → SERVER_NAME → a hardcoded fallback. HTTP_HOST is
+     * intentionally NOT trusted because it's client-controlled (Host
+     * header) and has been used for phishing via reset links.
+     */
+    private function safeHost(): string {
+        $envUrl = getenv('APP_URL');
+        if ($envUrl) {
+            $parsed = parse_url($envUrl);
+            if (!empty($parsed['host'])) return $parsed['host'];
+        }
+        $serverName = $_SERVER['SERVER_NAME'] ?? '';
+        if ($serverName !== '') return $serverName;
+        return 'localhost';
     }
 
     private function siteName(): string {
         return getenv('MAIL_FROM_NAME') ?: 'Archive Film Club';
     }
 
+    /**
+     * Base URL for generating links in emails. Pins to APP_URL when set
+     * so attacker-controlled Host headers can't poison password-reset
+     * and verification links. Falls back to SERVER_NAME (configured
+     * server-side), NOT HTTP_HOST (client-supplied).
+     *
+     * When falling back, we append the install directory (from
+     * SCRIPT_NAME) so links in emails work for subdirectory deployments
+     * (e.g. /films/ on cPanel).
+     */
     private function baseUrl(): string {
         $envUrl = getenv('APP_URL');
         if ($envUrl) return rtrim($envUrl, '/');
 
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        return "$scheme://$host";
+        $host = $this->safeHost();
+
+        // Compute install subdirectory from SCRIPT_NAME (e.g. /films).
+        $script = $_SERVER['SCRIPT_NAME'] ?? '';
+        $installDir = rtrim(str_replace('\\', '/', dirname($script)), '/');
+        // dirname('/api/auth/register.php') = '/api/auth'; strip the
+        // /api/... suffix so we end up with the install root.
+        if (preg_match('#^(.*)/api(/.*)?$#', $installDir, $m)) {
+            $installDir = $m[1];
+        }
+
+        return "$scheme://$host" . $installDir;
     }
 }

@@ -22,7 +22,12 @@
  * false and the caller should render the login view.
  */
 
-session_start();
+// Route through the app bootstrap so we get the same .env loader,
+// autoloader, and hardened session cookie (secure/httponly/samesite +
+// install-scoped cookie path) as the rest of the app. Without this,
+// admin sessions run with weaker defaults and leak cookies across
+// sibling installs.
+require_once __DIR__ . '/../../bootstrap.php';
 
 $useDatabase = false;
 $authService = null;
@@ -30,18 +35,30 @@ $settingsService = null;
 $admin_user = null;
 
 try {
-    if (file_exists(__DIR__ . '/../../services/AdminAuthService.php') &&
-        file_exists(__DIR__ . '/../../services/SettingsService.php') &&
-        file_exists(__DIR__ . '/../../.env')) {
-
-        require_once __DIR__ . '/../../services/AdminAuthService.php';
-        require_once __DIR__ . '/../../services/SettingsService.php';
-
+    if (file_exists(__DIR__ . '/../../.env')) {
+        // Autoloader resolves AdminAuthService / SettingsService; no
+        // require_once needed.
         $authService = new AdminAuthService();
         $settingsService = new SettingsService();
 
+        // Consider the DB usable whenever an admin exists in either the
+        // unified users table (migration 003) or the legacy admin_users
+        // table. hasAdminUsers() on its own only checks the legacy table.
         if ($authService->hasAdminUsers()) {
             $useDatabase = true;
+        } else {
+            try {
+                $db = Database::getInstance();
+                $unifiedAdmins = (int)$db->fetchColumn(
+                    "SELECT COUNT(*) FROM users WHERE role IN ('admin','editor') AND is_guest = 0"
+                );
+                if ($unifiedAdmins > 0) {
+                    $useDatabase = true;
+                }
+            } catch (Throwable $e) {
+                // users table may lack the new columns on an old install;
+                // fall through to JSON mode.
+            }
         }
     }
 } catch (Exception $e) {

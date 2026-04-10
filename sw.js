@@ -9,15 +9,17 @@ const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
 
-// Static assets to cache on install (relative paths for subdirectory support)
+// Static assets to cache on install (relative paths for subdirectory support).
+// Only list files that actually exist — cache.addAll() is atomic and a single
+// 404 aborts the whole install. The app is PHP-rendered, so there's no
+// index.html / manifest.json to precache.
 const STATIC_ASSETS = [
   './',
-  './index.html',
   './styles.css',
+  './auth-styles.css',
   './player-styles.css',
   './app.js',
   './player.js',
-  './manifest.json',
   'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap'
 ];
 

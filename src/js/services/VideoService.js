@@ -18,7 +18,8 @@ export class VideoService {
    * Get video metadata from local caching API
    */
   async getMetadataViaLocalApi(id) {
-    const resp = await fetch(`/api/metadata.php?id=${encodeURIComponent(id)}`);
+    // Relative path so subdirectory deployments (e.g. /films/ on cPanel) work.
+    const resp = await fetch(`api/metadata.php?id=${encodeURIComponent(id)}`);
     if (!resp.ok) throw new Error(`Failed to fetch metadata: ${resp.statusText}`);
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
