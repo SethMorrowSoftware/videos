@@ -136,6 +136,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($migrationFiles as $migrationFile) {
                 $sql = file_get_contents($migrationFile);
 
+                // Strip SQL line comments BEFORE splitting on `;`. A comment
+                // like `-- items; deleting a collection deletes its items.`
+                // contains a semicolon in the text, and a naive
+                // explode(';', $sql) would split the file mid-comment,
+                // yielding a second chunk whose first line is no longer
+                // comment-prefixed. MariaDB then tries to parse the comment
+                // prose as SQL and errors out with a 1064 syntax error.
+                //
+                // Our migrations don't use /* ... */ block comments and
+                // don't embed `--` inside string literals, so a line-level
+                // strip is sufficient and safe. (Extend this if we start
+                // using either.)
+                $sql = preg_replace('/^\s*--[^\n]*$/m', '', $sql);
+
                 // Split into individual statements
                 $statements = array_filter(
                     array_map('trim', explode(';', $sql)),
