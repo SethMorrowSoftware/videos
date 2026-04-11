@@ -3,9 +3,11 @@
 Living document tracking the pre-beta audit findings and their status.
 Updated: 2026-04-10.
 
-The full audit report lives in the commit message and PR discussion for the
-`claude/audit-project-functionality-wSLrV` branch. This file is the short
-version that engineers + reviewers should use to check off remaining work.
+The latest audit pass (`claude/audit-project-functionality-HV74D`) re-verified
+everything on this list against the current tree, corrected the B4 entry, and
+added the new findings in the "Audit pass 2026-04-10" section below. This
+file is the short version that engineers + reviewers should use to check off
+remaining work. A deeper architectural reference lives in `CLAUDE.md`.
 
 ---
 
@@ -36,10 +38,14 @@ version that engineers + reviewers should use to check off remaining work.
   and does not need CORS. File: `api/.htaccess`.
 
 - [x] **B4. Service worker (`sw.js`) was never registered.** Offline feature
-  was dead. Added a relative registration snippet to `partials/header.php` so
-  every page (index, player, collection, admin) registers it once using a
-  relative URL that stays correct under subdirectory deployments. File:
-  `partials/header.php`.
+  was dead. Registration is wired into `app.js` (line ~828) and `player.js`
+  (line ~700), both via a relative `'sw.js'` URL so subdirectory installs get
+  the correct `/subdir/sw.js` scope automatically. The first visit to
+  `index.php` or `player.php` activates the SW across the whole install
+  scope, so later cold visits to auxiliary pages (login, admin, collections)
+  still hit it. **NOTE (2026-04-10):** a previous edit of this tracker
+  claimed registration lived in `partials/header.php`; that was wrong and
+  has been corrected. See "Audit pass 2026-04-10 — F1" below for follow-up.
 
 - [x] **B5. `install.php` re-run protection was fragile.** Only checked
   `.installed` file; deleting that file re-opened the installer. Added a
@@ -115,6 +121,119 @@ These passed audit and should stay that way:
   `upgrade_cache.php`; sets `X-Content-Type-Options`, `X-Frame-Options`,
   `Referrer-Policy`; disables directory indexing.
 - [x] All 72 PHP files pass `php -l`.
+
+---
+
+## Audit pass 2026-04-10 (branch `claude/audit-project-functionality-HV74D`)
+
+Second end-to-end review against the post-B1–B5 tree. All 72 PHP files
+compile clean on PHP 8.4 (`php -l`). Subdirectory handling, auth flow,
+cookie scoping, email base-URL, SW scope, sanitizers, and prepared
+statements all re-verified. New findings below.
+
+### Fixed in this branch
+
+- [x] **F2. `verify-email.php` failed-state link pointed at `profile.php`
+  which does not exist** (the profile/settings page is `account.php`).
+  Users hitting an expired/invalid verification token landed on a dead
+  link. Fixed in `verify-email.php` (link now points at `account.php`).
+
+### New findings (not blockers)
+
+- [ ] **F1. Service worker is not registered on cold loads of auxiliary
+  pages.** Because registration lives in `app.js` and `player.js`, visiting
+  `login.php` / `register.php` / `collection.php` / `account.php` /
+  `admin.php` *before* the homepage or player means no SW install on that
+  visit. Real-world impact is tiny (almost every journey starts at
+  `index.php`, and once the SW is installed its scope covers the whole
+  install directory), but the documentation promise of "every page
+  registers the SW" is stronger than reality. **Fix (post-beta):** either
+  add a tiny `<script>` snippet to `partials/header.php` that calls
+  `navigator.serviceWorker.register('sw.js')` once, or move the existing
+  block into a shared `src/js/utils/registerSW.js` and import it from all
+  entry pages. **Do not** change the URL to a leading-slash path — that
+  would break subdirectory installs.
+
+- [ ] **F3. `index.php` and `player.php` do not `require_once bootstrap.php`.**
+  They load `services/SettingsService.php` directly, which only pulls
+  `db/Database.php`. Consequences:
+    - No PHP session is started on the first render (it gets started later
+      when the frontend calls `api/auth/me.php`, which does bootstrap).
+    - The PSR-4-ish autoloader is not active in those files, so the
+      `partials/header.php` fallback (`new UserContext()`) would silently
+      fail if it were included there. In practice it isn't — both pages
+      render their own header with `data-auth-nav`, hydrated client-side
+      by `AuthNav.js`.
+    - Install-scoped cookie path is not applied until a later request
+      starts the session via `bootstrap.php`. Browsers will end up with
+      the PHP default `session.cookie_path = /`, which is fine for a
+      root install and mostly fine for subdir installs (cookies just
+      scope slightly broader than ideal).
+  **Not a blocker**, but consolidating to `require_once __DIR__ .
+  '/bootstrap.php'` at the top of both files would be a one-line tidy-up.
+
+- [ ] **F4. Root-level `recommendations.php` is a JSON file with a
+  `.php` extension.** Previously flagged under "Nice-to-have". Confirmed
+  dead code: the real endpoint is `api/recommendations.php`. Safe to
+  delete — nothing in the codebase references it. Leaving it in place
+  doesn't break anything (PHP passes it through as raw output).
+
+- [ ] **F5. `api/collections.php` POST switch cases have no `break`.**
+  Each case calls `$api->ok(...)` or `$api->error(...)`, both of which
+  `exit`, so control never falls through. Safe, but a lint picks it up.
+  Consider adding `break;` for style consistency.
+
+### Re-verified (still good)
+
+- [x] Subdirectory deployment:
+    - `bootstrap.php::app_cookie_path()` strips `/api[/...]` so cookies
+      are scoped to the install root from every entrypoint.
+    - `MailService::baseUrl()` prefers `APP_URL`, falls back to
+      `SERVER_NAME` + install dir computed from `SCRIPT_NAME` with the
+      same `/api` strip. Host-header poisoning blocked.
+    - `sw.js` `STATIC_ASSETS` are all relative (`./`, `./styles.css`, …).
+    - `app.js:829` and `player.js:700` register the SW via a relative
+      `'sw.js'` URL so scope tracks the install dir automatically.
+    - Frontend `AuthService.AUTH_BASE='api/auth'` and
+      `ApiService.BASE_URL='api'` are both relative, resolved against
+      `document.baseURI`.
+    - `collection.php:214` computes `$installBase` for share URLs.
+- [x] Security hardening:
+    - Prepared statements everywhere via `db/Database.php`.
+    - `htmlspecialchars(..., ENT_QUOTES)` in every template branch.
+    - `password_hash(PASSWORD_DEFAULT)` + `password_verify`, never MD5/SHA1.
+    - `session_regenerate_id(true)` on login, register, and password reset.
+    - Remember-me / reset / verify tokens are SHA-256 hashed at rest in
+      `user_auth_tokens`; raw token only transits in the email link.
+    - `MailService::fromHeader()` + `stripCrlf()` blocks header injection.
+    - `afc_safe_next()` open-redirect whitelist is mirrored on the client.
+    - `api/metadata.php` / `api/thumbnail.php` SSRF-pinned to archive.org.
+    - `api/diagnose.php` admin-gated post-install.
+    - `api/cache.php` admin-only for `process_queue`/`refresh_stale`/`stats`;
+      wildcard CORS header removed.
+    - Root `.htaccess` denies `.env`, `Database.php`, `config.php`,
+      `upgrade_cache.php`, `*.md`, `*.sql`, `*.log`; disables indexing;
+      forces HTTPS; sets nosniff / frame-options / referrer-policy.
+- [x] Installer:
+    - Dual guard (`.installed` file + admin existence in `users` table).
+    - Swallows idempotent "already exists / duplicate column" errors.
+    - Chmods `.env` to 0600 after writing.
+    - Creates admin in the unified `users` table (role='admin',
+      is_guest=0) so the first login path matches the rest of the app.
+- [x] Auth flow:
+    - Unified `users` table (migration 003): accounts + guests, role column.
+    - `UserContext` resolves session → remember cookie → auto-created
+      guest row keyed by PHP session id.
+    - `UserAuthService::mergeGuest()` moves bookmarks/history/searches
+      into the new account on register/login.
+    - First registered account is auto-promoted to `admin`.
+- [x] All 72 PHP files pass `php -l` on PHP 8.4.19.
+
+### Beta verdict
+
+**Ready to ship.** No blockers surfaced in this pass. The only code change
+in this branch is the one-line `verify-email.php` link fix (F2). F1/F3/F4/F5
+are minor polish to pick up after the beta tag.
 
 ---
 
