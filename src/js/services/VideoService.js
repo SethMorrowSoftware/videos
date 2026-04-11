@@ -21,9 +21,18 @@ export class VideoService {
     // Relative path so subdirectory deployments (e.g. /films/ on cPanel) work.
     const resp = await fetch(`api/metadata.php?id=${encodeURIComponent(id)}`);
     if (!resp.ok) throw new Error(`Failed to fetch metadata: ${resp.statusText}`);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    return data;
+    const payload = await resp.json();
+    if (payload.error || payload.success === false) {
+      throw new Error(payload.error || 'Metadata API returned failure');
+    }
+    // api/metadata.php wraps the normalized metadata under a `data` key
+    // ({ success, cached, stale, data }). Unwrap it so downstream callers
+    // (loadNativeVideo, player.js) see the metadata shape directly — the
+    // same contract as getMetadataDirectFromArchive. Without this, the
+    // player's file-list lookup finds nothing, loadNativeVideo throws,
+    // and the page silently falls back to the iframe embed, which has
+    // no playlist sidebar.
+    return payload.data || payload;
   }
 
   /**
