@@ -76,10 +76,10 @@ if ($token !== '') {
         </div>
       <?php elseif ($state === 'failed'): ?>
         <div class="auth-alert auth-alert--error" data-visible="true">
-          This verification link is invalid or has expired. Request a new one from your profile page.
+          This verification link is invalid or has expired. Request a new one from your account page.
         </div>
         <div class="auth-links">
-          <a href="profile.php">Go to profile</a>
+          <a href="account.php">Go to account</a>
         </div>
       <?php else: ?>
         <div class="auth-alert auth-alert--error" data-visible="true">
