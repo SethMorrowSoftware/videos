@@ -28,8 +28,9 @@ PHP 7.2+ and MySQL 5.7+ (JSON file fallback for pre-install state).
 | `collection.php` / `collections.php` | My-collections list + single collection view (owner via `?id=`, public via `?u=&s=`) |
 | `bootstrap.php` | **Load this first from every entrypoint.** Loads `.env`, registers autoloader, starts hardened session with install-scoped cookie path |
 
-Root-level `recommendations.php` is dead code (95-byte JSON-with-`.php`-extension
-shim); leave alone unless cleaning.
+The root-level `recommendations.php` shim (95-byte JSON-with-`.php`-extension
+dead code) was deleted in the 2026-04-11 audit pass. Staff picks now live
+exclusively at `api/recommendations.php`.
 
 ## Backend architecture
 

@@ -97,3 +97,25 @@ if (!function_exists('escapeAttr')) {
     </div>
   </div>
 </header>
+<?php
+// Service-worker registration shim.
+//
+// app.js and player.js also register 'sw.js' for the homepage + player,
+// but auxiliary pages (login, register, account, collections, etc.) don't
+// load those modules. Without this block, a user who cold-landed on, say,
+// /login.php would leave without an installed SW. The browser de-dupes
+// repeat registrations by URL, so it's safe to ship from multiple places.
+//
+// Path is deliberately relative ('sw.js'), NOT leading-slash: a
+// subdirectory install (/films/) must register /films/sw.js so scope
+// tracks the install dir. Do not change this to '/sw.js'.
+?>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function (err) {
+        console.warn('[SW] Registration failed:', err);
+      });
+    });
+  }
+</script>

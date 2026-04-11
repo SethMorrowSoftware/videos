@@ -6,6 +6,12 @@
  * Now supports MySQL database with JSON fallback
  */
 
+// Route through the app bootstrap so .env, autoloader, and the hardened
+// session cookie (secure/httponly/samesite + install-scoped path) are all
+// set up before anything else runs. Without this, the first hit of the
+// session gets the PHP default cookie path on the very first pageview.
+require_once __DIR__ . '/bootstrap.php';
+
 // Default settings
 $site_settings = [
     'siteName' => 'Archive Film Club',
@@ -27,18 +33,15 @@ $site_settings = [
 // Track if database is available
 $useDatabase = false;
 
-// Try to load settings from database first
+// Try to load settings from database first (autoloaded by bootstrap.php).
 try {
-    if (file_exists(__DIR__ . '/services/SettingsService.php')) {
-        require_once __DIR__ . '/services/SettingsService.php';
-        $settingsService = new SettingsService();
-        $dbSettings = $settingsService->getSettings();
-        if (!empty($dbSettings)) {
-            $site_settings = array_merge($site_settings, $dbSettings);
-            $useDatabase = true;
-        }
+    $settingsService = new SettingsService();
+    $dbSettings = $settingsService->getSettings();
+    if (!empty($dbSettings)) {
+        $site_settings = array_merge($site_settings, $dbSettings);
+        $useDatabase = true;
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     // Database not configured or error - fall back to JSON
     error_log("Database settings load failed, using JSON fallback: " . $e->getMessage());
 }

@@ -4,6 +4,11 @@
  * Immersive cinema-like player with rich playlist support
  */
 
+// Route through the app bootstrap so .env, autoloader, and the hardened
+// session cookie (secure/httponly/samesite + install-scoped path) are set
+// up before anything else runs on cold player-page visits.
+require_once __DIR__ . '/bootstrap.php';
+
 // Default settings
 $site_settings = [
     'siteName' => 'Archive Film Club',
@@ -25,16 +30,14 @@ $site_settings = [
 $useDatabase = false;
 
 try {
-    if (file_exists(__DIR__ . '/services/SettingsService.php')) {
-        require_once __DIR__ . '/services/SettingsService.php';
-        $settingsService = new SettingsService();
-        $dbSettings = $settingsService->getSettings();
-        if (!empty($dbSettings)) {
-            $site_settings = array_merge($site_settings, $dbSettings);
-            $useDatabase = true;
-        }
+    // SettingsService is autoloaded via bootstrap.php.
+    $settingsService = new SettingsService();
+    $dbSettings = $settingsService->getSettings();
+    if (!empty($dbSettings)) {
+        $site_settings = array_merge($site_settings, $dbSettings);
+        $useDatabase = true;
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     error_log("Database settings load failed: " . $e->getMessage());
 }
 

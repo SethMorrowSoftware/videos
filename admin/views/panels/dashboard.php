@@ -1,3 +1,15 @@
+                    <?php if (!empty($adminPasswordFallbackActive)): ?>
+                    <div class="dashboard-warning" role="alert" style="margin-bottom:20px;padding:14px 18px;border-radius:10px;border:1px solid var(--warning,#f5a623);background:var(--warning-bg,#fff6e5);color:var(--warning,#8a5a00);display:flex;gap:12px;align-items:flex-start;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        <div>
+                            <strong>Break-glass admin password is still active.</strong>
+                            <div style="margin-top:4px;font-size:13px;line-height:1.5;">
+                                A database admin account exists on this install, but <code>ADMIN_PASSWORD</code> is still set in your <code>.env</code> file. That gives anyone with the env file a second way to sign in. Remove the <code>ADMIN_PASSWORD=</code> line (or leave it blank) and reload this page.
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="dashboard-welcome">
                         <h2>Welcome back<?= $admin_user ? ', ' . htmlspecialchars($admin_user['username'] ?? 'Admin') : '' ?></h2>
                         <p>Here's an overview of your <?= htmlspecialchars($site_settings['siteName'] ?? 'Archive Film Club') ?> site.</p>

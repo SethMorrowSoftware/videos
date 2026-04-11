@@ -87,6 +87,10 @@ $userId = (int)$user['id'];
 $body = $api->jsonBody();
 $action = (string)($body['action'] ?? '');
 
+// Each case below ends in $api->ok(...) or $api->error(...), both of
+// which call exit(). The trailing `break;` statements are therefore
+// unreachable at runtime, but they keep strict linters happy and signal
+// intent to future readers.
 try {
     switch ($action) {
         case 'create': {
@@ -98,6 +102,7 @@ try {
             ]);
             $collection = $service->getForUser($userId, $id);
             $api->ok(['collection' => $collection, 'message' => 'Collection created']);
+            break;
         }
 
         case 'update': {
@@ -105,6 +110,7 @@ try {
             $ok = $service->update($userId, $id, $body);
             if (!$ok) $api->error('Collection not found', 404);
             $api->ok(['collection' => $service->getForUser($userId, $id), 'message' => 'Collection updated']);
+            break;
         }
 
         case 'delete': {
@@ -112,6 +118,7 @@ try {
             $ok = $service->delete($userId, $id);
             if (!$ok) $api->error('Collection not found', 404);
             $api->ok(['message' => 'Collection deleted']);
+            break;
         }
 
         case 'addItem': {
@@ -127,6 +134,7 @@ try {
                 'added' => $added,
                 'message' => $added ? 'Added to collection' : 'Already in collection',
             ]);
+            break;
         }
 
         case 'removeItem': {
@@ -135,6 +143,7 @@ try {
             if ($archiveId === '') $api->error('Missing archive_id', 400);
             $ok = $service->removeItem($userId, $id, $archiveId);
             $api->ok(['removed' => $ok]);
+            break;
         }
 
         case 'reorderItems': {
@@ -147,6 +156,7 @@ try {
             );
             $service->reorderItems($userId, $id, $clean);
             $api->ok(['message' => 'Order updated']);
+            break;
         }
 
         case 'updateNote': {
@@ -156,6 +166,7 @@ try {
             if ($archiveId === '') $api->error('Missing archive_id', 400);
             $service->updateItemNote($userId, $id, $archiveId, $note);
             $api->ok(['message' => 'Note updated']);
+            break;
         }
 
         default:
