@@ -68,6 +68,12 @@ try {
 // Fallback password from environment variable (never hardcode credentials)
 $ADMIN_PASSWORD = getenv('ADMIN_PASSWORD') ?: null;
 
+// Break-glass password vs real DB admin — flag for dashboard banner.
+// If the install has a proper DB admin AND an ADMIN_PASSWORD is still set
+// in .env, the operator has a "second key" they may not remember. Views
+// read this flag and render a warning (see R4 in BETA_READINESS.md).
+$adminPasswordFallbackActive = ($useDatabase && !empty($ADMIN_PASSWORD));
+
 // Handle login
 $login_error = '';
 if (isset($_POST['password']) || (isset($_POST['username']) && isset($_POST['password']))) {

@@ -1,13 +1,13 @@
 # Beta Readiness Tracker
 
 Living document tracking the pre-beta audit findings and their status.
-Updated: 2026-04-10.
+Updated: 2026-04-11.
 
-The latest audit pass (`claude/audit-project-functionality-HV74D`) re-verified
-everything on this list against the current tree, corrected the B4 entry, and
-added the new findings in the "Audit pass 2026-04-10" section below. This
-file is the short version that engineers + reviewers should use to check off
-remaining work. A deeper architectural reference lives in `CLAUDE.md`.
+The latest audit pass (`claude/audit-beta-release-Rm7Oj`) re-verified
+everything on this list against the current tree, resolved F1/F3/F4/F5
+and R4, and re-lints clean on PHP 8.4. This file is the short version
+that engineers + reviewers should use to check off remaining work. A
+deeper architectural reference lives in `CLAUDE.md`.
 
 ---
 
@@ -76,10 +76,15 @@ remaining work. A deeper architectural reference lives in `CLAUDE.md`.
   each attempt, reject when count in the sliding window exceeds a threshold
   (5/15min by IP is a reasonable starting point).
 
-- [ ] **R4. `ADMIN_PASSWORD` env var fallback.** If the user leaves
+- [x] **R4. `ADMIN_PASSWORD` env var fallback.** If the user leaves
   `ADMIN_PASSWORD=...` in `.env` after running `install.php`, they have a
-  second admin credential they may not remember. Planned: show a banner in
-  the admin dashboard when `ADMIN_PASSWORD` is set and a DB admin exists.
+  second admin credential they may not remember. **Fixed:**
+  `admin/controllers/AdminBootstrap.php` now computes
+  `$adminPasswordFallbackActive` whenever a DB admin exists AND
+  `ADMIN_PASSWORD` is set, and `admin/views/panels/dashboard.php` renders
+  a dismissable warning banner at the top of the dashboard telling the
+  operator to remove the env line. (The fallback login path itself is
+  unchanged — it's still useful when the DB is unreachable.)
 
 ---
 
@@ -91,8 +96,11 @@ remaining work. A deeper architectural reference lives in `CLAUDE.md`.
 - [ ] **Refactor inline `onerror=` handlers** in `admin.js` (lines ~291, ~911)
   to `addEventListener('error', ...)` for style consistency — not a security
   issue, src is code-controlled.
-- [ ] **Verify `recommendations.php`** (95-byte shim at repo root) is still
-  needed. Probably dead code.
+- [x] **Verified `recommendations.php`** (95-byte shim at repo root) was
+  dead code and has been deleted. The real endpoint remains
+  `api/recommendations.php`. Nothing in the codebase references the root
+  shim; `sw.js`'s cache-strategy map keys on the filename so it still
+  applies to the API endpoint.
 
 ---
 
@@ -140,48 +148,34 @@ statements all re-verified. New findings below.
 
 ### New findings (not blockers)
 
-- [ ] **F1. Service worker is not registered on cold loads of auxiliary
-  pages.** Because registration lives in `app.js` and `player.js`, visiting
-  `login.php` / `register.php` / `collection.php` / `account.php` /
-  `admin.php` *before* the homepage or player means no SW install on that
-  visit. Real-world impact is tiny (almost every journey starts at
-  `index.php`, and once the SW is installed its scope covers the whole
-  install directory), but the documentation promise of "every page
-  registers the SW" is stronger than reality. **Fix (post-beta):** either
-  add a tiny `<script>` snippet to `partials/header.php` that calls
-  `navigator.serviceWorker.register('sw.js')` once, or move the existing
-  block into a shared `src/js/utils/registerSW.js` and import it from all
-  entry pages. **Do not** change the URL to a leading-slash path — that
-  would break subdirectory installs.
+- [x] **F1. Service worker is not registered on cold loads of auxiliary
+  pages.** **Fixed:** `partials/header.php` now emits a tiny inline
+  `<script>` block at the end of the partial that calls
+  `navigator.serviceWorker.register('sw.js')` (relative URL, subdirectory
+  safe). The partial is included by `login.php`, `register.php`,
+  `forgot-password.php`, `reset-password.php`, `verify-email.php`,
+  `account.php`, `collection.php`, and `collections.php`, so cold landings
+  on any of those pages now install the SW. `app.js` and `player.js`
+  still register for `index.php` / `player.php`; browsers de-dup repeat
+  registrations by URL so double-registration is harmless.
 
-- [ ] **F3. `index.php` and `player.php` do not `require_once bootstrap.php`.**
-  They load `services/SettingsService.php` directly, which only pulls
-  `db/Database.php`. Consequences:
-    - No PHP session is started on the first render (it gets started later
-      when the frontend calls `api/auth/me.php`, which does bootstrap).
-    - The PSR-4-ish autoloader is not active in those files, so the
-      `partials/header.php` fallback (`new UserContext()`) would silently
-      fail if it were included there. In practice it isn't — both pages
-      render their own header with `data-auth-nav`, hydrated client-side
-      by `AuthNav.js`.
-    - Install-scoped cookie path is not applied until a later request
-      starts the session via `bootstrap.php`. Browsers will end up with
-      the PHP default `session.cookie_path = /`, which is fine for a
-      root install and mostly fine for subdir installs (cookies just
-      scope slightly broader than ideal).
-  **Not a blocker**, but consolidating to `require_once __DIR__ .
-  '/bootstrap.php'` at the top of both files would be a one-line tidy-up.
+- [x] **F3. `index.php` and `player.php` do not `require_once bootstrap.php`.**
+  **Fixed:** both files now start with `require_once __DIR__ .
+  '/bootstrap.php';` so the install-scoped session cookie, the
+  autoloader, and the `.env` loader run on the very first render. The
+  old `require_once __DIR__ . '/services/SettingsService.php';` lines
+  were removed since the class is now autoloaded. `SettingsService`
+  instantiation is now wrapped in `catch (Throwable $e)` rather than
+  `catch (Exception $e)` so autoloader Errors from a fully-missing
+  services dir fall back to JSON mode instead of 500ing.
 
-- [ ] **F4. Root-level `recommendations.php` is a JSON file with a
-  `.php` extension.** Previously flagged under "Nice-to-have". Confirmed
-  dead code: the real endpoint is `api/recommendations.php`. Safe to
-  delete — nothing in the codebase references it. Leaving it in place
-  doesn't break anything (PHP passes it through as raw output).
+- [x] **F4. Root-level `recommendations.php` dead code.** **Deleted.**
+  The real endpoint remains `api/recommendations.php`.
 
-- [ ] **F5. `api/collections.php` POST switch cases have no `break`.**
-  Each case calls `$api->ok(...)` or `$api->error(...)`, both of which
-  `exit`, so control never falls through. Safe, but a lint picks it up.
-  Consider adding `break;` for style consistency.
+- [x] **F5. `api/collections.php` POST switch cases have no `break`.**
+  **Fixed:** each case now ends with an explicit `break;` after its
+  `$api->ok(...)` / `$api->error(...)` call. Functionally a no-op (both
+  helpers `exit`), but keeps strict linters happy and signals intent.
 
 ### Re-verified (still good)
 
@@ -231,9 +225,39 @@ statements all re-verified. New findings below.
 
 ### Beta verdict
 
-**Ready to ship.** No blockers surfaced in this pass. The only code change
-in this branch is the one-line `verify-email.php` link fix (F2). F1/F3/F4/F5
-are minor polish to pick up after the beta tag.
+**Ready to ship.** No blockers surfaced in this pass.
+
+---
+
+## Audit pass 2026-04-11 (branch `claude/audit-beta-release-Rm7Oj`)
+
+Third end-to-end review + polish pass against the post-B1–B5, post-F2
+tree. All 71 PHP files (was 72; `recommendations.php` shim deleted)
+compile clean on PHP 8.4 with `php -l`.
+
+### Fixed in this branch
+
+- **F1** — SW registration now also fires from `partials/header.php`, so
+  cold landings on auxiliary pages install the worker. Both
+  `app.js`/`player.js` and the partial use the same relative
+  `'sw.js'` URL so browsers de-dup the registration.
+- **F3** — `index.php` and `player.php` now `require_once bootstrap.php`
+  at the very top. Install-scoped session cookies + autoloader active
+  from the first render.
+- **F4** — Root-level `recommendations.php` dead shim deleted.
+- **F5** — Explicit `break;` statements added to the POST switch in
+  `api/collections.php` for lint + style consistency.
+- **R4** — Admin dashboard now renders a warning banner when a DB admin
+  exists and `ADMIN_PASSWORD` is still set in `.env`. The fallback
+  login path itself is intentionally preserved for DB-outage recovery.
+
+### Re-verified (still good)
+
+- All items from the 2026-04-10 pass remain intact.
+- All 71 PHP files pass `php -l` on PHP 8.4.
+- No new blockers surfaced. The remaining open items (R1 CSRF tokens,
+  R2 login rate-limiting, and the nice-to-have CSP/HSTS/manifest work)
+  are unchanged from the previous pass.
 
 ---
 
