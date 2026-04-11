@@ -433,6 +433,12 @@ class ArchiveOrgService {
                     'name' => $name,
                     'format' => $format,
                     'size' => $file['size'] ?? 0,
+                    // Preserve per-file duration so the player playlist
+                    // sidebar can render episode length badges. Archive.org
+                    // returns this as a "length" field (usually a string
+                    // like "1234.56" seconds or "HH:MM:SS"); the JS formatter
+                    // handles both.
+                    'length' => $file['length'] ?? null,
                     'url' => "https://archive.org/download/{$archiveId}/{$name}",
                 ];
             }
