@@ -16,7 +16,7 @@
 --     each have a "favorites" collection. Public URLs therefore need
 --     the owner's username in the path: /c/{username}/{slug}.
 --   - Cascading deletes: deleting a user deletes their collections and
---     items; deleting a collection deletes its items.
+--     items, and deleting a collection deletes its items.
 --   - Item count + video count are denormalized on the collection row
 --     for cheap list rendering, kept in sync by the service layer.
 --
