@@ -41,7 +41,7 @@ class VideoPlayer {
     this.videoFiles = [];
     this.allVideoFiles = []; // All files including quality variants
     this.currentFileName = null;
-    this.descriptionExpanded = false;
+    this.descriptionExpanded = true;
 
     this.initElements();
     this.setupEventListeners();
@@ -340,7 +340,11 @@ class VideoPlayer {
 
     if (description && description.length > 10) {
       if (this.descriptionSection) this.descriptionSection.style.display = 'block';
-      if (this.descriptionContent) this.descriptionContent.innerHTML = sanitizeHtml(description);
+      if (this.descriptionContent) {
+        this.descriptionContent.innerHTML = sanitizeHtml(description);
+        this.descriptionContent.classList.add('expanded');
+      }
+      if (this.descriptionToggle) this.descriptionToggle.classList.add('expanded');
     }
   }
 

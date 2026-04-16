@@ -147,7 +147,7 @@ export class RecommendedManager {
         <div class="recommended-card-thumb">
           <img src="${thumbUrl}"
                alt="${escapeHtml(title)}"
-               loading="lazy"
+               loading="eager"
                onerror="this.style.display='none'; this.parentNode.innerHTML='<div class=thumb-placeholder>🎬</div>'"/>
           ${runtime ? `<span class="runtime-badge">${runtime}</span>` : ''}
           <div class="recommended-card-overlay">

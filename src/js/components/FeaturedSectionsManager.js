@@ -37,18 +37,19 @@ export class FeaturedSectionsManager {
       return;
     }
 
-    // Load videos for each section
-    for (const section of enabledSections) {
-      if (section.videos && section.videos.length > 0) {
+    // Load videos for all sections in parallel
+    const loadPromises = enabledSections
+      .filter(section => section.videos && section.videos.length > 0)
+      .map(async (section) => {
         const videos = await this.loadVideosForSection(section);
         if (videos.length > 0) {
-          this.sections.push({
-            ...section,
-            loadedVideos: videos
-          });
+          return { ...section, loadedVideos: videos };
         }
-      }
-    }
+        return null;
+      });
+
+    const results = await Promise.all(loadPromises);
+    this.sections = results.filter(s => s !== null);
 
     this.render();
   }
@@ -142,7 +143,7 @@ export class FeaturedSectionsManager {
         <div class="featured-card-thumb">
           <img src="${thumbUrl}"
                alt="${escapeHtml(title)}"
-               loading="lazy"
+               loading="eager"
                onerror="this.style.display='none'; this.parentNode.innerHTML='<div class=thumb-placeholder>🎬</div>'"/>
           ${runtime ? `<span class="runtime-badge">${runtime}</span>` : ''}
           <div class="featured-card-overlay">

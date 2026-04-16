@@ -75,26 +75,32 @@ class ArchiveVideoSearch {
     this.loadUserPreferences();
     this.setupSearchSuggestions();
 
-    // Initialize recommended section
+    // Initialize recommended section and featured sections FIRST (highest priority)
     this.recommendedManager = new RecommendedManager(this);
-    this.recommendedManager.init().then(() => {
-      console.log('Recommended section initialized');
-    }).catch(err => {
-      console.error('Failed to init recommended:', err);
-    });
-
-    // Initialize featured sections
     this.featuredSectionsManager = new FeaturedSectionsManager(this);
-    this.featuredSectionsManager.init().then(() => {
-      console.log('Featured sections initialized');
-    }).catch(err => {
-      console.error('Failed to init featured sections:', err);
-    });
-
-    // Store in window for global access
     window.featuredSectionsManager = this.featuredSectionsManager;
 
-    this.handleUrlParameters();
+    // Load sections in parallel, then trigger search after they render
+    this._sectionsReady = Promise.all([
+      this.recommendedManager.init().then(() => {
+        console.log('Recommended section initialized');
+      }).catch(err => {
+        console.error('Failed to init recommended:', err);
+      }),
+      this.featuredSectionsManager.init().then(() => {
+        console.log('Featured sections initialized');
+      }).catch(err => {
+        console.error('Failed to init featured sections:', err);
+      })
+    ]);
+
+    // Defer search until sections have loaded (or 3s timeout as fallback)
+    Promise.race([
+      this._sectionsReady,
+      new Promise(resolve => setTimeout(resolve, 3000))
+    ]).then(() => {
+      this.handleUrlParameters();
+    });
 
     // Setup offline handler callbacks
     this.offlineHandler.onStatusChange((isOnline) => {
@@ -394,21 +400,19 @@ class ArchiveVideoSearch {
         this.collection.value = urlState.collection;
       }
       if (urlState.page > 0) this.currentPage = urlState.page;
-      setTimeout(() => this.performSearch(), 100);
+      this.performSearch();
     } else {
       this.loadInitialSearch();
     }
   }
 
   loadInitialSearch() {
-    setTimeout(() => {
-      const defaultCollection = this.siteSettings.defaultCollection || 'all_videos';
-      const defaultSort = this.siteSettings.defaultSort || 'downloads';
+    const defaultCollection = this.siteSettings.defaultCollection || 'all_videos';
+    const defaultSort = this.siteSettings.defaultSort || 'downloads';
 
-      if (this.collection) this.collection.value = defaultCollection;
-      if (this.sortBy) this.sortBy.value = defaultSort;
-      this.performSearch();
-    }, 500);
+    if (this.collection) this.collection.value = defaultCollection;
+    if (this.sortBy) this.sortBy.value = defaultSort;
+    this.performSearch();
   }
 
   /**
