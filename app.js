@@ -80,27 +80,20 @@ class ArchiveVideoSearch {
     this.featuredSectionsManager = new FeaturedSectionsManager(this);
     window.featuredSectionsManager = this.featuredSectionsManager;
 
-    // Load sections in parallel, then trigger search after they render
-    this._sectionsReady = Promise.all([
-      this.recommendedManager.init().then(() => {
-        console.log('Recommended section initialized');
-      }).catch(err => {
-        console.error('Failed to init recommended:', err);
-      }),
-      this.featuredSectionsManager.init().then(() => {
-        console.log('Featured sections initialized');
-      }).catch(err => {
-        console.error('Failed to init featured sections:', err);
-      })
-    ]);
-
-    // Defer search until sections have loaded (or 3s timeout as fallback)
-    Promise.race([
-      this._sectionsReady,
-      new Promise(resolve => setTimeout(resolve, 3000))
-    ]).then(() => {
-      this.handleUrlParameters();
+    // Start loading sections immediately (parallel, non-blocking)
+    this.recommendedManager.init().then(() => {
+      console.log('Recommended section initialized');
+    }).catch(err => {
+      console.error('Failed to init recommended:', err);
     });
+    this.featuredSectionsManager.init().then(() => {
+      console.log('Featured sections initialized');
+    }).catch(err => {
+      console.error('Failed to init featured sections:', err);
+    });
+
+    // Fire search in parallel — no deferral
+    this.handleUrlParameters();
 
     // Setup offline handler callbacks
     this.offlineHandler.onStatusChange((isOnline) => {
