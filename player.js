@@ -84,7 +84,6 @@ class VideoPlayer {
     this.upNextCountdown = document.getElementById('upNextCountdown');
     this.upNextPlay = document.getElementById('upNextPlay');
     this.upNextCancel = document.getElementById('upNextCancel');
-    this.fullscreenBtn = document.getElementById('fullscreenBtn');
     this.playerCinema = document.getElementById('playerCinema');
     this._upNextTimer = null;
   }
@@ -132,10 +131,8 @@ class VideoPlayer {
     if (this.upNextPlay) this.upNextPlay.addEventListener('click', () => this.confirmUpNext());
     if (this.upNextCancel) this.upNextCancel.addEventListener('click', () => this.cancelUpNext());
 
-    // Fullscreen
-    if (this.fullscreenBtn) this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
-
     // Mirror fullscreen state on the page so CSS can adapt the layout.
+    // Triggered by the native <video> fullscreen button or the `f` keyboard shortcut.
     document.addEventListener('fullscreenchange', () => this._syncFullscreenState());
     document.addEventListener('webkitfullscreenchange', () => this._syncFullscreenState());
   }
