@@ -378,7 +378,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
-  min-height: 100vh;
+  min-height: 100dvh;
   padding-top: var(--header-height);
 }
 
@@ -2398,7 +2398,7 @@ button {
    ============================================== */
 .offline-banner {
   position: fixed;
-  top: 56px;
+  top: var(--header-height);
   left: 0;
   right: 0;
   background: var(--color-warning);
@@ -2577,7 +2577,7 @@ textarea:focus-visible {
     left: -100%;
     width: 85%;
     max-width: 320px;
-    height: 100vh;
+    height: 100dvh;
     background: var(--surface-glass-strong);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -2585,7 +2585,7 @@ textarea:focus-visible {
     transition: left var(--transition-slow);
     border-right: 1px solid var(--color-border);
     border-radius: 0;
-    padding: var(--space-12) var(--space-5) var(--space-5);
+    padding: calc(var(--space-12) + env(safe-area-inset-top, 0px)) var(--space-5) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
   }
 
   .sidebar.open {
