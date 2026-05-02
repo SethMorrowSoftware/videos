@@ -6,7 +6,7 @@
 /* ---- Player Page Body ---- */
 .player-page {
   padding-top: 0 !important;
-  background: #0a0a0a !important;
+  background: #07070a !important;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -583,13 +583,13 @@
   padding: 8px 16px;
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
-  border-radius: 20px;
+  border-radius: var(--radius-full);
   color: var(--color-text-primary);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background var(--transition-base), border-color var(--transition-base), transform var(--transition-fast);
   text-decoration: none;
   line-height: 1;
   white-space: nowrap;
@@ -597,8 +597,11 @@
 
 .player-pill-btn:hover {
   background: var(--color-bg-elevated);
-  border-color: var(--color-border-hover);
-  transform: translateY(-1px);
+  border-color: var(--color-border-strong);
+}
+
+.player-pill-btn:active {
+  transform: scale(0.97);
 }
 
 .player-pill-btn svg {
@@ -610,7 +613,7 @@
 .player-description-section {
   margin-bottom: 20px;
   background: var(--color-bg-secondary);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   border: 1px solid var(--color-border);
 }
@@ -668,10 +671,10 @@
 .player-downloads-panel {
   margin-bottom: 20px;
   background: var(--color-bg-secondary);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
   overflow: hidden;
-  animation: panelSlideIn 0.3s ease;
+  animation: panelSlideIn 0.3s var(--ease-out);
 }
 
 @keyframes panelSlideIn {

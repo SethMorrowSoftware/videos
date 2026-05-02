@@ -80,6 +80,10 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sign in · <?= htmlspecialchars($site_settings['siteName'], ENT_QUOTES) ?></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth-styles.css">
   <style>
@@ -114,11 +118,11 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
       <?php if ($hasGuestData): ?>
         <div class="auth-merge-box">
           <strong>We noticed you have some saved data on this device.</strong>
-          <div style="margin-top:8px;">
+          <div>
             <?= $guestBookmarks ?> bookmark<?= $guestBookmarks === 1 ? '' : 's' ?>
             and <?= $guestHistory ?> video<?= $guestHistory === 1 ? '' : 's' ?> in watch history.
           </div>
-          <label class="auth-checkbox" style="margin-top:8px;">
+          <label class="auth-checkbox" style="margin-top:12px;">
             <input type="checkbox" data-merge-checkbox checked>
             Move these into my account when I sign in
           </label>
@@ -131,9 +135,13 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
           <input id="identifier" name="identifier" type="text" autocomplete="username" required>
         </div>
 
-        <div class="auth-field">
+        <div class="auth-field auth-field-password">
           <label for="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button type="button" class="auth-password-toggle" data-password-toggle="password" aria-label="Show password" title="Show password">
+            <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
         </div>
 
         <label class="auth-checkbox">
@@ -150,6 +158,25 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
       </div>
     </div>
   </main>
+
+  <!-- Password visibility toggle -->
+  <script>
+    (function() {
+      var toggles = document.querySelectorAll('[data-password-toggle]');
+      toggles.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var id = btn.getAttribute('data-password-toggle');
+          var input = document.getElementById(id);
+          if (!input) return;
+          var revealed = input.type === 'text';
+          input.type = revealed ? 'password' : 'text';
+          btn.setAttribute('data-revealed', revealed ? 'false' : 'true');
+          btn.setAttribute('aria-label', revealed ? 'Show password' : 'Hide password');
+          btn.setAttribute('title', revealed ? 'Show password' : 'Hide password');
+        });
+      });
+    })();
+  </script>
 
   <script type="module">
     import { AuthService } from './src/js/services/AuthService.js';
