@@ -197,7 +197,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://archive.org">
 
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgOEw0IDE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThMMTggMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkw2IDZDNC44OTU0MyA2IDQgNi44OTU0MyA0IDhaIiBzdHJva2U9IiNmZjAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik0xMCAxMkwxNCAxMk0xMiAxMEwxMiAxNCIgc3Ryb2tlPSIjZmYwMDAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K" />
 
@@ -230,6 +230,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   </script>
 </head>
 <body data-card-style="<?= escapeAttr($site_settings['cardStyle']) ?>">
+  <a class="skip-link" href="#mainResults">Skip to results</a>
   <header class="site-header">
     <div class="header-content">
       <button class="mobile-menu-btn" aria-label="Open menu">
@@ -241,7 +242,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       <!-- Clickable Logo - Goes Home -->
       <a href="index.php" class="logo-section" title="Go to homepage">
         <div class="logo-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 8L4 16C4 17.1046 4.89543 18 6 18L18 18C19.1046 18 20 17.1046 20 16V8C20 6.89543 19.1046 6 18 6L6 6C4.89543 6 4 6.89543 4 8Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             <path d="M10 12L14 12M12 10L12 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
@@ -256,10 +257,11 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             id="searchInput"
             type="search"
             class="header-search-input"
-            placeholder="Search"
+            placeholder="Search videos, creators, collections..."
             autocomplete="off"
             aria-label="Search videos"
           />
+          <span class="header-search-kbd" aria-hidden="true" data-search-kbd></span>
           <button id="clearSearchBtn" class="clear-search-btn" type="button" style="display: none;" aria-label="Clear search">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -398,11 +400,19 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
 
       <div id="error" class="error" role="alert" hidden></div>
 
+      <div id="mainResults" tabindex="-1"></div>
       <div id="results" class="results-grid"></div>
 
       <nav id="pagination" class="pagination" aria-label="Page navigation"></nav>
     </section>
   </main>
+
+  <!-- Back to top -->
+  <button id="backToTop" class="back-to-top" aria-label="Back to top" title="Back to top">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="18 15 12 9 6 15"/>
+    </svg>
+  </button>
 
   <!-- Site Settings Configuration -->
   <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings) ?></script>
@@ -489,6 +499,59 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
         var savedTheme = localStorage.getItem('theme');
         if (!savedTheme || savedTheme === 'system') {
           setTheme(e.matches ? 'dark' : 'light');
+        }
+      });
+    })();
+  </script>
+
+  <!-- Back-to-top button -->
+  <script>
+    (function() {
+      var btn = document.getElementById('backToTop');
+      if (!btn) return;
+      var scrollHandler = function() {
+        if (window.scrollY > 480) btn.classList.add('visible');
+        else btn.classList.remove('visible');
+      };
+      window.addEventListener('scroll', scrollHandler, { passive: true });
+      btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    })();
+  </script>
+
+  <!-- Search keyboard shortcut (Cmd/Ctrl+K) and platform-aware kbd hint -->
+  <script>
+    (function() {
+      var searchInput = document.getElementById('searchInput');
+      var kbdHint = document.querySelector('[data-search-kbd]');
+      if (!searchInput) return;
+
+      var isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+      if (kbdHint) {
+        kbdHint.textContent = isMac ? '⌘ K' : 'Ctrl K';
+      }
+
+      document.addEventListener('keydown', function(e) {
+        var isShortcut = (e.key === 'k' || e.key === 'K') && (isMac ? e.metaKey : e.ctrlKey);
+        if (isShortcut) {
+          e.preventDefault();
+          searchInput.focus();
+          searchInput.select();
+        }
+        // Forward-slash to focus search (when not typing in another field)
+        if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          var tag = (e.target && e.target.tagName) || '';
+          var isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable);
+          if (!isEditable) {
+            e.preventDefault();
+            searchInput.focus();
+            searchInput.select();
+          }
+        }
+        // Escape to clear focus from search
+        if (e.key === 'Escape' && document.activeElement === searchInput) {
+          searchInput.blur();
         }
       });
     })();

@@ -44,7 +44,7 @@ if (!function_exists('escapeAttr')) {
   <div class="header-content">
     <a href="index.php" class="logo-section" title="Go to homepage">
       <div class="logo-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M4 8L4 16C4 17.1046 4.89543 18 6 18L18 18C19.1046 18 20 17.1046 20 16V8C20 6.89543 19.1046 6 18 6L6 6C4.89543 6 4 6.89543 4 8Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           <path d="M10 12L14 12M12 10L12 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
@@ -55,7 +55,7 @@ if (!function_exists('escapeAttr')) {
     <?php if (!$hideSearch): ?>
     <form id="searchForm" class="header-search-form" role="search" action="index.php" method="get">
       <div class="header-search-input-wrapper">
-        <input name="q" type="search" class="header-search-input" placeholder="Search" autocomplete="off" aria-label="Search videos" />
+        <input name="q" type="search" class="header-search-input" placeholder="Search videos, creators, collections..." autocomplete="off" aria-label="Search videos" />
       </div>
       <button type="submit" class="search-submit-btn" aria-label="Search">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

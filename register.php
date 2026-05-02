@@ -54,6 +54,10 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Create account · <?= htmlspecialchars($site_settings['siteName'], ENT_QUOTES) ?></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth-styles.css">
   <style>
@@ -88,11 +92,11 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
       <?php if ($hasGuestData): ?>
         <div class="auth-merge-box" data-merge-box>
           <strong>We noticed you have some saved data.</strong>
-          <div style="margin-top:8px;">
+          <div>
             <?= $guestBookmarks ?> bookmark<?= $guestBookmarks === 1 ? '' : 's' ?>
             and <?= $guestHistory ?> video<?= $guestHistory === 1 ? '' : 's' ?> in watch history.
           </div>
-          <label class="auth-checkbox" style="margin-top:8px;">
+          <label class="auth-checkbox" style="margin-top:12px;">
             <input type="checkbox" data-merge-checkbox checked>
             Move these into my new account
           </label>
@@ -118,11 +122,19 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
           <input id="display_name" name="display_name" type="text" autocomplete="nickname" maxlength="100">
         </div>
 
-        <div class="auth-field">
+        <div class="auth-field auth-field-password">
           <label for="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="new-password"
                  minlength="8" required>
+          <button type="button" class="auth-password-toggle" data-password-toggle="password" aria-label="Show password" title="Show password">
+            <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
           <div class="field-hint">At least 8 characters.</div>
+          <div class="password-strength" data-password-strength aria-live="polite">
+            <div class="password-strength-bar"><span data-strength-fill></span></div>
+            <span class="password-strength-label" data-strength-label>Enter a password</span>
+          </div>
         </div>
 
         <button type="submit" class="auth-submit">Create account</button>
@@ -134,6 +146,61 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
       </div>
     </div>
   </main>
+
+  <!-- Password visibility toggle -->
+  <script>
+    (function() {
+      var toggles = document.querySelectorAll('[data-password-toggle]');
+      toggles.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var id = btn.getAttribute('data-password-toggle');
+          var input = document.getElementById(id);
+          if (!input) return;
+          var revealed = input.type === 'text';
+          input.type = revealed ? 'password' : 'text';
+          btn.setAttribute('data-revealed', revealed ? 'false' : 'true');
+          btn.setAttribute('aria-label', revealed ? 'Show password' : 'Hide password');
+          btn.setAttribute('title', revealed ? 'Show password' : 'Hide password');
+        });
+      });
+    })();
+  </script>
+
+  <!-- Password strength meter -->
+  <script>
+    (function() {
+      var input = document.getElementById('password');
+      var meter = document.querySelector('[data-password-strength]');
+      if (!input || !meter) return;
+      var fill = meter.querySelector('[data-strength-fill]');
+      var label = meter.querySelector('[data-strength-label]');
+
+      function score(pw) {
+        if (!pw) return { value: 0, label: 'Enter a password', tone: 'idle' };
+        var s = 0;
+        if (pw.length >= 8) s++;
+        if (pw.length >= 12) s++;
+        if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+        if (/\d/.test(pw)) s++;
+        if (/[^A-Za-z0-9]/.test(pw)) s++;
+        if (pw.length < 8) {
+          return { value: 1, label: 'Too short — needs 8+ characters', tone: 'weak' };
+        }
+        if (s <= 2) return { value: 2, label: 'Weak', tone: 'weak' };
+        if (s === 3) return { value: 3, label: 'Fair', tone: 'fair' };
+        if (s === 4) return { value: 4, label: 'Good', tone: 'good' };
+        return { value: 5, label: 'Strong', tone: 'strong' };
+      }
+
+      input.addEventListener('input', function() {
+        var r = score(input.value);
+        var pct = (r.value / 5) * 100;
+        fill.style.width = pct + '%';
+        meter.setAttribute('data-tone', r.tone);
+        label.textContent = r.label;
+      });
+    })();
+  </script>
 
   <script type="module">
     import { AuthService } from './src/js/services/AuthService.js';

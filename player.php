@@ -170,7 +170,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://archive.org">
 
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgOEw0IDE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThMMTggMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkw2IDZDNC44OTU0MyA2IDQgNi44OTU0MyA0IDhaIiBzdHJva2U9IiNmZjAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik0xMCAxMkwxNCAxMk0xMiAxMEwxMiAxNCIgc3Ryb2tlPSIjZmYwMDAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K" />
 
@@ -290,12 +290,47 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             <svg class="theater-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7V5C3 3.89543 3.89543 3 5 3H7M17 3H19C20.1046 3 21 3.89543 21 5V7M21 17V19C21 20.1046 20.1046 21 19 21H17M7 21H5C3.89543 21 3 20.1046 3 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <svg class="theater-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3V5C8 6.10457 7.10457 7 6 7H4M20 7H18C16.8954 7 16 6.10457 16 5V3M16 21V19C16 17.8954 16.8954 17 18 17H20M4 17H6C7.10457 17 8 17.8954 8 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
+          <button id="fullscreenBtn" class="pctl-btn" title="Fullscreen (f)" aria-label="Toggle fullscreen">
+            <svg class="fs-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3H5C3.89543 3 3 3.89543 3 5V8M16 3H19C20.1046 3 21 3.89543 21 5V8M3 16V19C3 20.1046 3.89543 21 5 21H8M21 16V19C21 20.1046 20.1046 21 19 21H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg class="fs-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 9H8C8.55228 9 9 8.55228 9 8V5M16 5V8C16 8.55228 16.4477 9 17 9H20M9 16V19C9 19.5523 8.55228 20 8 20H5M16 19V16C16 15.4477 16.4477 15 17 15H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Keyboard Shortcut Indicator (kept inside cinema so it shows in fullscreen) -->
+      <div id="shortcutIndicator" class="shortcut-indicator" aria-hidden="true"></div>
+
+      <!-- Up Next overlay (kept inside cinema so it shows in fullscreen + autoplay countdown) -->
+      <div id="upNextOverlay" class="up-next-overlay" role="dialog" aria-label="Playing next">
+        <div class="up-next-card">
+          <div class="up-next-eyebrow">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Up next
+          </div>
+          <div class="up-next-body">
+            <div class="up-next-thumb">
+              <img id="upNextThumb" src="" alt="" onerror="this.style.display='none'" />
+            </div>
+            <div class="up-next-info">
+              <div id="upNextTitle" class="up-next-title">Next episode</div>
+              <div id="upNextCountdown" class="up-next-countdown">Playing in 8…</div>
+            </div>
+          </div>
+          <div class="up-next-actions">
+            <button id="upNextCancel" type="button" class="up-next-btn up-next-btn-secondary">Cancel</button>
+            <button id="upNextPlay" type="button" class="up-next-btn up-next-btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M5 3L19 12L5 21V3Z"/>
+              </svg>
+              Play now
+            </button>
+          </div>
+          <div class="up-next-progress" aria-hidden="true"><span></span></div>
         </div>
       </div>
     </div>
-
-    <!-- Keyboard Shortcut Indicator -->
-    <div id="shortcutIndicator" class="shortcut-indicator" aria-hidden="true"></div>
 
     <!-- Content Below Video -->
     <div class="player-content" id="playerContent">
@@ -307,6 +342,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             <span id="videoCreator" class="player-creator"></span>
             <span id="videoDate" class="player-date"></span>
           </div>
+          <div id="videoMetaPills" class="player-meta-pills" style="display:none;"></div>
           <div id="videoActions" class="player-video-actions">
             <a id="archiveLink" href="#" target="_blank" class="player-pill-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M18 13V19C18 20.1046 17.1046 21 16 21H5C3.89543 21 3 20.1046 3 19V8C3 6.89543 3.89543 6 5 6H11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 3H21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -321,6 +357,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
               Download
             </button>
           </div>
+          <div id="videoTagsRow" class="player-tags-row" style="display:none;"></div>
         </section>
 
         <!-- Description -->
@@ -345,17 +382,17 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       </div>
 
       <!-- Sidebar: Playlist -->
-      <aside id="playlistSidebar" class="player-sidebar" style="display: none;">
+      <aside id="playlistSidebar" class="player-sidebar" style="display: none;" data-density="comfortable">
         <div class="player-sidebar-header">
           <div class="sidebar-header-info">
             <h3 id="playlistTitle">Episodes</h3>
             <span id="playlistCount" class="player-sidebar-count"></span>
           </div>
           <div class="sidebar-header-nav">
-            <button id="sidebarPrevBtn" class="sidebar-nav-btn" disabled title="Previous episode">
+            <button id="sidebarPrevBtn" class="sidebar-nav-btn" disabled title="Previous episode (Shift+P)" aria-label="Previous episode">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button id="sidebarNextBtn" class="sidebar-nav-btn" disabled title="Next episode">
+            <button id="sidebarNextBtn" class="sidebar-nav-btn" disabled title="Next episode (Shift+N)" aria-label="Next episode">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>

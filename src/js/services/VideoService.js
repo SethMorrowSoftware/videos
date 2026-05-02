@@ -290,9 +290,9 @@ export class VideoService {
       throw new Error('Video wrapper not found');
     }
 
-    const oldVideo = videoWrapper.querySelector('.video-player, .video-element');
-    if (oldVideo) oldVideo.remove();
-
+    // Drop any old iframe (fallback player) or stale custom-controls block.
+    const oldIframe = videoWrapper.querySelector('iframe.video-player');
+    if (oldIframe) oldIframe.remove();
     const oldControls = videoWrapper.querySelector('.video-controls');
     if (oldControls) oldControls.remove();
 

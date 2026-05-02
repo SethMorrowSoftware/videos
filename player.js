@@ -65,6 +65,8 @@ class VideoPlayer {
     this.videoTitle = document.getElementById('videoTitle');
     this.videoCreator = document.getElementById('videoCreator');
     this.videoDate = document.getElementById('videoDate');
+    this.videoMetaPills = document.getElementById('videoMetaPills');
+    this.videoTagsRow = document.getElementById('videoTagsRow');
     this.archiveLink = document.getElementById('archiveLink');
     this.descriptionSection = document.getElementById('descriptionSection');
     this.descriptionToggle = document.getElementById('descriptionToggle');
@@ -76,6 +78,15 @@ class VideoPlayer {
     this.saveToCollectionBtn = document.getElementById('saveToCollectionBtn');
     this.downloadBtn = document.getElementById('downloadBtn');
     this.closeDownloads = document.getElementById('closeDownloads');
+    this.upNextOverlay = document.getElementById('upNextOverlay');
+    this.upNextThumb = document.getElementById('upNextThumb');
+    this.upNextTitle = document.getElementById('upNextTitle');
+    this.upNextCountdown = document.getElementById('upNextCountdown');
+    this.upNextPlay = document.getElementById('upNextPlay');
+    this.upNextCancel = document.getElementById('upNextCancel');
+    this.fullscreenBtn = document.getElementById('fullscreenBtn');
+    this.playerCinema = document.getElementById('playerCinema');
+    this._upNextTimer = null;
   }
 
   setupEventListeners() {
@@ -116,6 +127,50 @@ class VideoPlayer {
     if (this.ui.sidebarNextBtn) {
       this.ui.sidebarNextBtn.addEventListener('click', () => this.playNextEpisode());
     }
+
+    // Up Next overlay
+    if (this.upNextPlay) this.upNextPlay.addEventListener('click', () => this.confirmUpNext());
+    if (this.upNextCancel) this.upNextCancel.addEventListener('click', () => this.cancelUpNext());
+
+    // Fullscreen
+    if (this.fullscreenBtn) this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+
+    // Mirror fullscreen state on the page so CSS can adapt the layout.
+    document.addEventListener('fullscreenchange', () => this._syncFullscreenState());
+    document.addEventListener('webkitfullscreenchange', () => this._syncFullscreenState());
+  }
+
+  /**
+   * Fullscreen target is the cinema container, NOT the bare <video>:
+   *   - keeps the Up Next overlay + shortcut indicator visible across episodes
+   *   - keeps fullscreen alive when the playlist auto-advances, because
+   *     VideoService now reuses the <video> element instead of replacing
+   *     the wrapper's innerHTML.
+   */
+  toggleFullscreen() {
+    const target = this.playerCinema || this.videoWrapper;
+    if (!target) return;
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+
+    if (fsEl) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document);
+      return;
+    }
+
+    const req = target.requestFullscreen || target.webkitRequestFullscreen;
+    if (!req) return;
+    const result = req.call(target);
+    if (result && typeof result.catch === 'function') {
+      result.catch(err => {
+        console.warn('[player] fullscreen request rejected:', err && err.message);
+      });
+    }
+  }
+
+  _syncFullscreenState() {
+    const fs = document.fullscreenElement || document.webkitFullscreenElement;
+    document.body.classList.toggle('player-is-fullscreen', !!fs);
   }
 
   // ========================================
@@ -141,13 +196,8 @@ class VideoPlayer {
         }
         break;
       case 'f':
-        if (!video) return;
         e.preventDefault();
-        if (document.fullscreenElement) {
-          document.exitFullscreen();
-        } else {
-          video.requestFullscreen();
-        }
+        this.toggleFullscreen();
         break;
       case 'm':
         if (!video) return;
@@ -354,6 +404,9 @@ class VideoPlayer {
       this.archiveLink.href = `https://archive.org/details/${this.videoId}`;
     }
 
+    this._renderMetaPills(meta);
+    this._renderTags(meta);
+
     if (description && description.length > 10) {
       if (this.descriptionSection) this.descriptionSection.style.display = 'block';
       if (this.descriptionContent) {
@@ -364,6 +417,126 @@ class VideoPlayer {
     }
   }
 
+  /**
+   * Render metadata pills (year, runtime, language, mediatype, license, downloads, rating).
+   * Pulls from Archive.org's metadata blob, which is loose JSON — every field
+   * may be a string or array, hence the extractValue helper.
+   */
+  _renderMetaPills(meta) {
+    if (!this.videoMetaPills) return;
+    const pills = [];
+
+    const date = extractValue(meta.date) || '';
+    if (date) {
+      const year = String(date).slice(0, 4);
+      if (/^\d{4}$/.test(year)) pills.push({ icon: 'calendar', text: year });
+    }
+
+    const runtime = formatRuntime(extractValue(meta.runtime));
+    if (runtime) pills.push({ icon: 'clock', text: runtime });
+
+    const language = extractValue(meta.language);
+    if (language) pills.push({ icon: 'globe', text: this._titleCase(String(language)) });
+
+    const mediatype = extractValue(meta.mediatype);
+    if (mediatype && mediatype !== 'movies') {
+      pills.push({ icon: 'media', text: this._titleCase(String(mediatype)) });
+    }
+
+    const downloads = parseInt(extractValue(meta.downloads), 10);
+    if (!isNaN(downloads) && downloads > 0) {
+      pills.push({ icon: 'download', text: `${this._formatCount(downloads)} downloads` });
+    }
+
+    const reviews = parseInt(extractValue(meta.num_reviews), 10);
+    const avg = parseFloat(extractValue(meta.avg_rating));
+    if (!isNaN(avg) && avg > 0) {
+      const ratingText = !isNaN(reviews) && reviews > 0
+        ? `${avg.toFixed(1)} (${reviews})`
+        : avg.toFixed(1);
+      pills.push({ icon: 'star', text: ratingText, tone: 'star' });
+    }
+
+    const license = String(extractValue(meta.licenseurl) || '').toLowerCase();
+    if (license.includes('publicdomain')) {
+      pills.push({ icon: 'shield', text: 'Public Domain', tone: 'success' });
+    } else if (license.includes('creativecommons')) {
+      pills.push({ icon: 'shield', text: 'Creative Commons', tone: 'accent' });
+    }
+
+    if (!pills.length) {
+      this.videoMetaPills.innerHTML = '';
+      this.videoMetaPills.style.display = 'none';
+      return;
+    }
+
+    const icons = {
+      calendar: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+      clock: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+      globe: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20a15.3 15.3 0 0 1 0-20z"/></svg>',
+      media: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M22 8 16 12 22 16"/></svg>',
+      download: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+      star: '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><polygon points="12 2 15.1 8.6 22 9.6 17 14.4 18.2 21.3 12 18 5.8 21.3 7 14.4 2 9.6 8.9 8.6 12 2"/></svg>',
+      shield: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+    };
+
+    this.videoMetaPills.style.display = 'flex';
+    this.videoMetaPills.innerHTML = pills.map(p =>
+      `<span class="player-meta-pill ${p.tone ? 'tone-' + p.tone : ''}">
+        ${icons[p.icon] || ''}
+        <span>${escapeHtml(p.text)}</span>
+      </span>`
+    ).join('');
+  }
+
+  /**
+   * Render up to 8 subject/topic tags as pills.
+   */
+  _renderTags(meta) {
+    if (!this.videoTagsRow) return;
+    const subjects = meta.subject;
+    if (!subjects) {
+      this.videoTagsRow.innerHTML = '';
+      this.videoTagsRow.style.display = 'none';
+      return;
+    }
+    const list = Array.isArray(subjects)
+      ? subjects
+      : String(subjects).split(/[;,]+/).map(s => s.trim()).filter(Boolean);
+
+    const seen = new Set();
+    const dedup = [];
+    for (const t of list) {
+      const k = t.toLowerCase();
+      if (k && !seen.has(k)) { seen.add(k); dedup.push(t); }
+      if (dedup.length >= 8) break;
+    }
+
+    if (!dedup.length) {
+      this.videoTagsRow.innerHTML = '';
+      this.videoTagsRow.style.display = 'none';
+      return;
+    }
+
+    this.videoTagsRow.style.display = 'flex';
+    this.videoTagsRow.innerHTML =
+      '<span class="player-tags-label">Topics</span>' +
+      dedup.map(t =>
+        `<a class="player-tag" href="index.php?q=${encodeURIComponent(t)}" title="Search ${escapeHtml(t)}">#${escapeHtml(t)}</a>`
+      ).join('');
+  }
+
+  _formatCount(n) {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10_000 ? 0 : 1) + 'K';
+    return String(n);
+  }
+
+  _titleCase(s) {
+    if (!s) return '';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
   // ========================================
   // Video Event Listeners
   // ========================================
@@ -371,20 +544,43 @@ class VideoPlayer {
   setupVideoListeners(videoEl) {
     if (!videoEl) return;
 
+    // Reusing the <video> element across track changes means this gets
+    // called multiple times against the same node. Bail early on the
+    // second+ call so we don't stack pause/ended/volume listeners.
+    if (videoEl.dataset.afcListenersAttached === '1') return;
+    videoEl.dataset.afcListenersAttached = '1';
+
     videoEl.addEventListener('pause', () => {
       if (this.videoId && videoEl.currentTime && videoEl.duration) {
         this.progressTracker.saveProgress(this.videoId, videoEl.currentTime, videoEl.duration);
+        const idx = this.playlistService.getCurrentIndex();
+        if (this.playlist.isVisible() && this.playlistService.getPlaylist()) {
+          this.playlist.saveTrackProgress(idx, videoEl.currentTime, videoEl.duration);
+        }
       }
     });
+
+    // Periodically persist per-episode progress to drive playlist progress bars.
+    if (this._trackProgressInterval) clearInterval(this._trackProgressInterval);
+    this._trackProgressInterval = setInterval(() => {
+      if (!videoEl || videoEl.paused || !videoEl.duration) return;
+      const idx = this.playlistService.getCurrentIndex();
+      if (this.playlist.isVisible() && this.playlistService.getPlaylist()) {
+        this.playlist.saveTrackProgress(idx, videoEl.currentTime, videoEl.duration);
+      }
+    }, 5000);
 
     videoEl.addEventListener('ended', () => {
       if (this.videoId && videoEl.duration) {
         this.progressTracker.saveProgress(this.videoId, videoEl.duration, videoEl.duration);
       }
-      // Auto-play next
+      const idx = this.playlistService.getCurrentIndex();
+      if (this.playlist.isVisible() && this.playlistService.getPlaylist()) {
+        this.playlist.markWatched(idx, videoEl.duration);
+      }
+      // Up Next overlay (only if there is a next + an actual playlist)
       if (this.playlistService.hasNext()) {
-        const nextIdx = this.playlistService.next();
-        this.playPlaylistItem(nextIdx);
+        this.showUpNext();
       }
     });
 
@@ -426,6 +622,69 @@ class VideoPlayer {
         }
       }
     });
+  }
+
+  /**
+   * Show the "Up Next" countdown overlay. Auto-advances after 8 seconds
+   * unless the user clicks Cancel.
+   */
+  showUpNext() {
+    if (!this.upNextOverlay) {
+      // Fallback to immediate auto-play if the overlay markup isn't present.
+      const nextIdx = this.playlistService.next();
+      if (nextIdx !== -1) this.playPlaylistItem(nextIdx);
+      return;
+    }
+    const pl = this.playlistService.getPlaylist();
+    if (!pl) return;
+    const nextIdx = this.playlistService.getCurrentIndex() + 1;
+    const nextFile = pl.videoFiles[nextIdx];
+    if (!nextFile) return;
+
+    const itemTitle = extractValue(pl.metadata?.title) || '';
+    const cleanTitle = this.videoService.getCleanTitle(nextFile.name, itemTitle);
+
+    if (this.upNextThumb) {
+      this.upNextThumb.src = `https://archive.org/services/img/${pl.id}`;
+    }
+    if (this.upNextTitle) {
+      this.upNextTitle.textContent = cleanTitle;
+    }
+
+    let remaining = 8;
+    if (this.upNextCountdown) {
+      this.upNextCountdown.textContent = `Playing in ${remaining}…`;
+    }
+    this.upNextOverlay.classList.add('visible');
+
+    if (this._upNextTimer) clearInterval(this._upNextTimer);
+    this._upNextTimer = setInterval(() => {
+      remaining--;
+      if (this.upNextCountdown) {
+        this.upNextCountdown.textContent = remaining > 0
+          ? `Playing in ${remaining}…`
+          : 'Playing next…';
+      }
+      if (remaining <= 0) {
+        this.confirmUpNext();
+      }
+    }, 1000);
+  }
+
+  confirmUpNext() {
+    this.cancelUpNext();
+    if (this.playlistService.hasNext()) {
+      const idx = this.playlistService.next();
+      this.playPlaylistItem(idx);
+    }
+  }
+
+  cancelUpNext() {
+    if (this._upNextTimer) {
+      clearInterval(this._upNextTimer);
+      this._upNextTimer = null;
+    }
+    if (this.upNextOverlay) this.upNextOverlay.classList.remove('visible');
   }
 
   getSavedVolume() {
@@ -502,6 +761,7 @@ class VideoPlayer {
     const file = pl.videoFiles[index];
     if (!file) return;
 
+    this.cancelUpNext();
     this.playlistService.setCurrentIndex(index);
 
     // Update URL
