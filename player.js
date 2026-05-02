@@ -81,6 +81,8 @@ class VideoPlayer {
     this.upNextCountdown = document.getElementById('upNextCountdown');
     this.upNextPlay = document.getElementById('upNextPlay');
     this.upNextCancel = document.getElementById('upNextCancel');
+    this.fullscreenBtn = document.getElementById('fullscreenBtn');
+    this.playerCinema = document.getElementById('playerCinema');
     this._upNextTimer = null;
   }
 
@@ -126,6 +128,46 @@ class VideoPlayer {
     // Up Next overlay
     if (this.upNextPlay) this.upNextPlay.addEventListener('click', () => this.confirmUpNext());
     if (this.upNextCancel) this.upNextCancel.addEventListener('click', () => this.cancelUpNext());
+
+    // Fullscreen
+    if (this.fullscreenBtn) this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+
+    // Mirror fullscreen state on the page so CSS can adapt the layout.
+    document.addEventListener('fullscreenchange', () => this._syncFullscreenState());
+    document.addEventListener('webkitfullscreenchange', () => this._syncFullscreenState());
+  }
+
+  /**
+   * Fullscreen target is the cinema container, NOT the bare <video>:
+   *   - keeps the Up Next overlay + shortcut indicator visible across episodes
+   *   - keeps fullscreen alive when the playlist auto-advances, because
+   *     VideoService now reuses the <video> element instead of replacing
+   *     the wrapper's innerHTML.
+   */
+  toggleFullscreen() {
+    const target = this.playerCinema || this.videoWrapper;
+    if (!target) return;
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+
+    if (fsEl) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document);
+      return;
+    }
+
+    const req = target.requestFullscreen || target.webkitRequestFullscreen;
+    if (!req) return;
+    const result = req.call(target);
+    if (result && typeof result.catch === 'function') {
+      result.catch(err => {
+        console.warn('[player] fullscreen request rejected:', err && err.message);
+      });
+    }
+  }
+
+  _syncFullscreenState() {
+    const fs = document.fullscreenElement || document.webkitFullscreenElement;
+    document.body.classList.toggle('player-is-fullscreen', !!fs);
   }
 
   // ========================================
@@ -151,13 +193,8 @@ class VideoPlayer {
         }
         break;
       case 'f':
-        if (!video) return;
         e.preventDefault();
-        if (document.fullscreenElement) {
-          document.exitFullscreen();
-        } else {
-          video.requestFullscreen();
-        }
+        this.toggleFullscreen();
         break;
       case 'm':
         if (!video) return;
@@ -490,6 +527,12 @@ class VideoPlayer {
 
   setupVideoListeners(videoEl) {
     if (!videoEl) return;
+
+    // Reusing the <video> element across track changes means this gets
+    // called multiple times against the same node. Bail early on the
+    // second+ call so we don't stack pause/ended/volume listeners.
+    if (videoEl.dataset.afcListenersAttached === '1') return;
+    videoEl.dataset.afcListenersAttached = '1';
 
     videoEl.addEventListener('pause', () => {
       if (this.videoId && videoEl.currentTime && videoEl.duration) {

@@ -410,6 +410,45 @@
 .player-page.theater-mode .theater-expand { display: none; }
 .player-page.theater-mode .theater-collapse { display: block; }
 
+/* Fullscreen button */
+.fs-collapse { display: none; }
+body.player-is-fullscreen .fs-expand { display: none; }
+body.player-is-fullscreen .fs-collapse { display: block; }
+
+/* Fullscreen on the cinema container — let the video fill the whole screen
+   while keeping our Up Next overlay + shortcut indicator visible. */
+.player-cinema:fullscreen,
+.player-cinema:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+
+.player-cinema:fullscreen .player-video-wrapper,
+.player-cinema:-webkit-full-screen .player-video-wrapper {
+  height: 100%;
+}
+
+.player-cinema:fullscreen .player-controls-bar,
+.player-cinema:-webkit-full-screen .player-controls-bar {
+  /* Sit above the native HTML5 controls and stay reachable on hover. */
+  z-index: 12;
+}
+
+/* While fullscreen, give the Up Next overlay a bit more breathing room
+   and a stronger backdrop because it's competing with the video itself. */
+.player-cinema:fullscreen .up-next-overlay,
+.player-cinema:-webkit-full-screen .up-next-overlay {
+  right: 32px;
+  bottom: 56px;
+  z-index: 30;
+}
+
+.player-cinema:fullscreen .up-next-card,
+.player-cinema:-webkit-full-screen .up-next-card {
+  background: rgba(8, 8, 12, 0.94);
+}
+
 /* ---- Keyboard Shortcut Indicator ---- */
 .shortcut-indicator {
   position: fixed;

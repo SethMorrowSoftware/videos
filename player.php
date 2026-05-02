@@ -290,41 +290,45 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             <svg class="theater-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7V5C3 3.89543 3.89543 3 5 3H7M17 3H19C20.1046 3 21 3.89543 21 5V7M21 17V19C21 20.1046 20.1046 21 19 21H17M7 21H5C3.89543 21 3 20.1046 3 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <svg class="theater-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3V5C8 6.10457 7.10457 7 6 7H4M20 7H18C16.8954 7 16 6.10457 16 5V3M16 21V19C16 17.8954 16.8954 17 18 17H20M4 17H6C7.10457 17 8 17.8954 8 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Keyboard Shortcut Indicator -->
-    <div id="shortcutIndicator" class="shortcut-indicator" aria-hidden="true"></div>
-
-    <!-- Up Next overlay (autoplay countdown) -->
-    <div id="upNextOverlay" class="up-next-overlay" role="dialog" aria-label="Playing next">
-      <div class="up-next-card">
-        <div class="up-next-eyebrow">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          Up next
-        </div>
-        <div class="up-next-body">
-          <div class="up-next-thumb">
-            <img id="upNextThumb" src="" alt="" onerror="this.style.display='none'" />
-          </div>
-          <div class="up-next-info">
-            <div id="upNextTitle" class="up-next-title">Next episode</div>
-            <div id="upNextCountdown" class="up-next-countdown">Playing in 8…</div>
-          </div>
-        </div>
-        <div class="up-next-actions">
-          <button id="upNextCancel" type="button" class="up-next-btn up-next-btn-secondary">Cancel</button>
-          <button id="upNextPlay" type="button" class="up-next-btn up-next-btn-primary">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M5 3L19 12L5 21V3Z"/>
-            </svg>
-            Play now
+          <button id="fullscreenBtn" class="pctl-btn" title="Fullscreen (f)" aria-label="Toggle fullscreen">
+            <svg class="fs-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3H5C3.89543 3 3 3.89543 3 5V8M16 3H19C20.1046 3 21 3.89543 21 5V8M3 16V19C3 20.1046 3.89543 21 5 21H8M21 16V19C21 20.1046 20.1046 21 19 21H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg class="fs-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 9H8C8.55228 9 9 8.55228 9 8V5M16 5V8C16 8.55228 16.4477 9 17 9H20M9 16V19C9 19.5523 8.55228 20 8 20H5M16 19V16C16 15.4477 16.4477 15 17 15H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>
-        <div class="up-next-progress" aria-hidden="true"><span></span></div>
+      </div>
+
+      <!-- Keyboard Shortcut Indicator (kept inside cinema so it shows in fullscreen) -->
+      <div id="shortcutIndicator" class="shortcut-indicator" aria-hidden="true"></div>
+
+      <!-- Up Next overlay (kept inside cinema so it shows in fullscreen + autoplay countdown) -->
+      <div id="upNextOverlay" class="up-next-overlay" role="dialog" aria-label="Playing next">
+        <div class="up-next-card">
+          <div class="up-next-eyebrow">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Up next
+          </div>
+          <div class="up-next-body">
+            <div class="up-next-thumb">
+              <img id="upNextThumb" src="" alt="" onerror="this.style.display='none'" />
+            </div>
+            <div class="up-next-info">
+              <div id="upNextTitle" class="up-next-title">Next episode</div>
+              <div id="upNextCountdown" class="up-next-countdown">Playing in 8…</div>
+            </div>
+          </div>
+          <div class="up-next-actions">
+            <button id="upNextCancel" type="button" class="up-next-btn up-next-btn-secondary">Cancel</button>
+            <button id="upNextPlay" type="button" class="up-next-btn up-next-btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M5 3L19 12L5 21V3Z"/>
+              </svg>
+              Play now
+            </button>
+          </div>
+          <div class="up-next-progress" aria-hidden="true"><span></span></div>
+        </div>
       </div>
     </div>
 

@@ -225,7 +225,15 @@ export class VideoService {
   }
 
   /**
-   * Load a native HTML5 video element
+   * Load a native HTML5 video element.
+   *
+   * Reuses an existing <video> when one already lives in the wrapper.
+   * This is what keeps fullscreen alive across track changes / quality
+   * switches: replacing the DOM node would otherwise drop the document's
+   * fullscreen element and exit fullscreen on the next playlist item.
+   *
+   * The first call builds the element (when no <video> is present yet
+   * — e.g. cold load); subsequent calls just swap the source and reload.
    */
   async loadNativeVideo(id, metadata, videoWrapper, specificFileName = null, userVolume = 1) {
     const actual = metadata.metadata ? metadata : { metadata, files: metadata.files };
@@ -255,23 +263,50 @@ export class VideoService {
       throw new Error('Video wrapper not found');
     }
 
-    const oldVideo = videoWrapper.querySelector('.video-player, .video-element');
-    if (oldVideo) oldVideo.remove();
-
+    // Drop any old iframe (fallback player) or stale custom-controls block.
+    const oldIframe = videoWrapper.querySelector('iframe.video-player');
+    if (oldIframe) oldIframe.remove();
     const oldControls = videoWrapper.querySelector('.video-controls');
     if (oldControls) oldControls.remove();
 
-    videoWrapper.innerHTML = `
-      <video class="video-element" id="mainVideo" controls preload="metadata" autoplay>
-        <source src="${url}" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-    `;
+    let videoEl = videoWrapper.querySelector('video.video-element');
 
-    const videoEl = videoWrapper.querySelector('#mainVideo');
+    if (videoEl) {
+      // Reuse the existing element. Just rewire the source so any active
+      // fullscreen state on this element survives the swap.
+      const wasMuted = videoEl.muted;
+      const existingSource = videoEl.querySelector('source');
+      if (existingSource) {
+        existingSource.src = url;
+      } else {
+        videoEl.innerHTML = `<source src="${url}" type="video/mp4">`;
+      }
+      videoEl.removeAttribute('src'); // belt-and-suspenders for some browsers
+      try { videoEl.load(); } catch (e) { /* ignore */ }
+      videoEl.muted = wasMuted;
+      // Kick autoplay (the `autoplay` attribute only fires for fresh elements).
+      const playPromise = videoEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => { /* user gesture rules can block this; non-fatal */ });
+      }
+    } else {
+      // First-time load: build the element.
+      const videoElement = document.createElement('video');
+      videoElement.className = 'video-element';
+      videoElement.id = 'mainVideo';
+      videoElement.controls = true;
+      videoElement.preload = 'metadata';
+      videoElement.autoplay = true;
+      videoElement.playsInline = true;
+      videoElement.setAttribute('playsinline', '');
 
-    if (!videoEl) {
-      throw new Error('Failed to create video element');
+      const source = document.createElement('source');
+      source.src = url;
+      source.type = 'video/mp4';
+      videoElement.appendChild(source);
+
+      videoWrapper.appendChild(videoElement);
+      videoEl = videoElement;
     }
 
     this.videoControls = { video: videoEl };
