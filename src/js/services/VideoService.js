@@ -73,40 +73,65 @@ export class VideoService {
 
     if (!files.length) return [];
 
+    // File extensions a browser <video> element can reasonably attempt.
+    // .ia is an Archive.org placeholder/redirect — not directly playable.
+    const PLAYABLE_EXTS = /\.(mp4|m4v|webm|ogv|ogg|mov|mpg|mpeg)$/i;
+    // Common video formats that may need a transcoded derivative; we keep
+    // them so the playlist surfaces them, but they may fail in the
+    // browser and trigger our error-fallback path.
+    const TOLERATED_EXTS = /\.(avi|flv|mkv|wmv)$/i;
+    // Sentinel/auxiliary files Archive.org generates per item that we
+    // never want in a playlist.
+    const SENTINEL_PATTERNS = [
+      /_meta\.(xml|sqlite|json)$/i,
+      /_files\.(xml|json)$/i,
+      /_reviews\.(xml|json)$/i,
+      /_itemimage\./i,
+      /__ia_thumb\./i,
+      /_thumb\.(jpg|jpeg|png|gif|webp)$/i,
+      /\.(torrent|srt|vtt|ass|ssa|json|xml|txt|pdf|doc|docx|sqlite|gz|zip|nfo|md5|asr|cue)$/i,
+      /\.ia$/i,
+    ];
+
     const videoFiles = files.filter(f => {
       const fmt = (f.format || '').toLowerCase();
-      const name = (f.name || '').toLowerCase();
-      const size = parseInt(f.size || 0);
+      const name = (f.name || '');
+      const lower = name.toLowerCase();
+      const size = parseInt(f.size || 0, 10);
 
-      // Skip non-video files
-      if (name.includes('thumb') || name.includes('_meta') ||
-          name.includes('.xml') || name.includes('.txt') ||
-          name.includes('.pdf') || name.includes('.doc') ||
-          name.includes('_itemimage') || name.includes('_preview') ||
-          fmt.includes('metadata') || fmt.includes('text') ||
-          fmt.includes('image')) {
+      if (!name) return false;
+
+      // Reject sentinel/aux files first.
+      for (const re of SENTINEL_PATTERNS) {
+        if (re.test(lower)) return false;
+      }
+
+      // Reject by format hint.
+      if (fmt.includes('metadata') || fmt.includes('text') ||
+          fmt.includes('image') || fmt.includes('thumbnail') ||
+          fmt.includes('archive bittorrent') || fmt.includes('json') ||
+          fmt.includes('item tile') || fmt.includes('subtitles')) {
         return false;
       }
 
+      const isPlayableExt = PLAYABLE_EXTS.test(lower);
+      const isToleratedExt = TOLERATED_EXTS.test(lower);
+
       const isVideoFormat = fmt.includes('mp4') || fmt.includes('mpeg') ||
                             fmt.includes('video') || fmt.includes('h.264') ||
-                            fmt.includes('webm') || fmt.includes('ogv') ||
-                            fmt.includes('matroska') || fmt.includes('quicktime') ||
-                            fmt.includes('avi') || fmt.includes('mov');
+                            fmt.includes('h264') || fmt.includes('webm') ||
+                            fmt.includes('ogv') || fmt.includes('ogg video') ||
+                            fmt.includes('matroska') || fmt.includes('quicktime');
 
-      const isVideoExt = name.endsWith('.mp4') || name.endsWith('.avi') ||
-                         name.endsWith('.mov') || name.endsWith('.webm') ||
-                         name.endsWith('.ogv') || name.endsWith('.flv') ||
-                         name.endsWith('.mkv') || name.endsWith('.wmv') ||
-                         name.endsWith('.mpg') || name.endsWith('.mpeg');
+      // Require either a known playable/tolerated extension OR a video
+      // format hint. Reject anything else even if it has a "reasonable"
+      // size — a 200KB JSON manifest is not a video.
+      if (!isPlayableExt && !isToleratedExt && !isVideoFormat) return false;
 
-      const isDerivative = name.includes('.mp4') || name.includes('.ogv') ||
-                           name.includes('.webm') || name.includes('_512kb') ||
-                           name.includes('_archive') || name.includes('_h264');
+      // Drop files smaller than 100KB — usually placeholders/manifests.
+      if (size > 0 && size < 100 * 1024) return false;
 
-      const hasReasonableSize = size > 100 * 1024;
-
-      return (isVideoFormat || isVideoExt || isDerivative) && hasReasonableSize;
+      return true;
     });
 
     return videoFiles.sort((a, b) => {
@@ -139,84 +164,74 @@ export class VideoService {
   }
 
   /**
+   * Strip extensions, quality markers, and known derivative suffixes from
+   * a filename to expose the underlying "episode" identity. Used by both
+   * dedup and the multi-episode detector — they MUST stay in sync,
+   * otherwise the playlist can disagree with itself about whether an item
+   * is a series or a single video.
+   */
+  normalizeBaseName(name) {
+    if (!name) return '';
+    let bn = name.replace(/\.[^.]+$/, ''); // strip final extension
+    // Iteratively strip stacked derivative suffixes (e.g.,
+    // `episode_archive_h264.mp4` -> `episode`).
+    let prev;
+    do {
+      prev = bn;
+      bn = bn
+        .replace(/\.(mp4|m4v|webm|ogv|ogg|avi|mov|mkv|flv|wmv|mpg|mpeg|ia)$/i, '')
+        .replace(/[_.-]\d{3,4}p$/i, '')      // _1080p / .720p
+        .replace(/[_.-](?:archive|512kb|h264|h\.264|hd|sd)$/i, '');
+    } while (bn !== prev);
+    return bn.toLowerCase().trim();
+  }
+
+  /**
    * Check if there are multiple unique videos (not just quality variants)
    */
   hasMultipleUniqueVideos(videoFiles) {
     if (videoFiles.length <= 1) return false;
     const baseNames = new Set();
-    videoFiles.forEach(f => {
-      let bn = f.name
-        .replace(/\.[^.]+$/, '')
-        .replace(/\.(mp4|webm|ogv|avi|mov|mkv|flv|wmv)$/i, '')
-        .replace(/_\d+p$/i, '')
-        .replace(/_archive$/i, '')
-        .replace(/_512kb$/i, '')
-        .replace(/_h264$/i, '');
-      baseNames.add(bn);
-    });
+    videoFiles.forEach(f => baseNames.add(this.normalizeBaseName(f.name)));
     return baseNames.size > 1;
   }
 
   /**
-   * Deduplicate video files for playlist display
-   * When the same episode exists in multiple formats (e.g., .ia and .mp4),
-   * keep only the preferred format (MP4 > other formats)
+   * Deduplicate video files for playlist display.
+   * When the same episode exists in multiple formats / qualities,
+   * keep only the best one (MP4 > other formats; largest size wins
+   * within a format).
    */
   deduplicateVideoFiles(videoFiles) {
     if (videoFiles.length <= 1) return videoFiles;
 
-    // Group files by their base name
     const fileGroups = new Map();
-
     videoFiles.forEach(file => {
-      // Normalize the filename to get the base episode name
-      let baseName = file.name
-        .replace(/\.[^.]+$/, '') // Remove final extension
-        .replace(/\.(ia|mp4|webm|ogv|avi|mov|mkv|flv|wmv)$/i, '') // Remove video extension
-        .replace(/_\d+p$/i, '') // Remove quality indicators like _720p
-        .replace(/_archive$/i, '')
-        .replace(/_512kb$/i, '')
-        .replace(/_h264$/i, '')
-        .toLowerCase()
-        .trim();
-
-      if (!fileGroups.has(baseName)) {
-        fileGroups.set(baseName, []);
-      }
+      const baseName = this.normalizeBaseName(file.name);
+      if (!fileGroups.has(baseName)) fileGroups.set(baseName, []);
       fileGroups.get(baseName).push(file);
     });
 
-    // For each group, select the best file
     const deduplicatedFiles = [];
-    fileGroups.forEach((files, baseName) => {
+    fileGroups.forEach(files => {
       if (files.length === 1) {
         deduplicatedFiles.push(files[0]);
-      } else {
-        // Prefer MP4, then other formats, avoid .ia files if better options exist
-        const mp4Files = files.filter(f => f.name.toLowerCase().endsWith('.mp4'));
-        const iaFiles = files.filter(f => f.name.toLowerCase().endsWith('.ia'));
-        const otherFiles = files.filter(f =>
-          !f.name.toLowerCase().endsWith('.mp4') &&
-          !f.name.toLowerCase().endsWith('.ia')
-        );
+        return;
+      }
+      const mp4s = files.filter(f => (f.name || '').toLowerCase().endsWith('.mp4'));
+      const others = files.filter(f => !(f.name || '').toLowerCase().endsWith('.mp4'));
 
-        // Priority: MP4 > other formats > .ia files
-        if (mp4Files.length > 0) {
-          // If multiple MP4s, prefer the largest (best quality)
-          mp4Files.sort((a, b) => (parseInt(b.size) || 0) - (parseInt(a.size) || 0));
-          deduplicatedFiles.push(mp4Files[0]);
-        } else if (otherFiles.length > 0) {
-          // Use other video formats if no MP4
-          otherFiles.sort((a, b) => (parseInt(b.size) || 0) - (parseInt(a.size) || 0));
-          deduplicatedFiles.push(otherFiles[0]);
-        } else if (iaFiles.length > 0) {
-          // Fall back to .ia files only if nothing else available
-          deduplicatedFiles.push(iaFiles[0]);
-        }
+      const bySizeDesc = (a, b) => (parseInt(b.size, 10) || 0) - (parseInt(a.size, 10) || 0);
+
+      if (mp4s.length > 0) {
+        mp4s.sort(bySizeDesc);
+        deduplicatedFiles.push(mp4s[0]);
+      } else {
+        others.sort(bySizeDesc);
+        deduplicatedFiles.push(others[0]);
       }
     });
 
-    // Sort the deduplicated files by name to maintain episode order
     return deduplicatedFiles.sort((a, b) => {
       const nameA = a.name || '';
       const nameB = b.name || '';
@@ -225,15 +240,26 @@ export class VideoService {
   }
 
   /**
-   * Load a native HTML5 video element.
-   *
-   * Reuses an existing <video> when one already lives in the wrapper.
-   * This is what keeps fullscreen alive across track changes / quality
-   * switches: replacing the DOM node would otherwise drop the document's
-   * fullscreen element and exit fullscreen on the next playlist item.
-   *
-   * The first call builds the element (when no <video> is present yet
-   * — e.g. cold load); subsequent calls just swap the source and reload.
+   * Map a filename extension to the MIME type to declare on <source>.
+   * Returning null means "let the browser sniff from the bytes" — safer
+   * than declaring the wrong type, which some browsers honor strictly.
+   */
+  guessMimeType(name) {
+    const lower = (name || '').toLowerCase();
+    if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    if (lower.endsWith('.ogv') || lower.endsWith('.ogg')) return 'video/ogg';
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.mpg') || lower.endsWith('.mpeg')) return 'video/mpeg';
+    return null;
+  }
+
+  /**
+   * Load a native HTML5 video element. If `specificFileName` is omitted,
+   * picks the best-quality file across the whole list — fine for
+   * single-video items, but multi-episode callers should always pass an
+   * explicit filename so we don't load (e.g.) episode 7's HD MP4 just
+   * because it happens to be the largest file in the metadata.
    */
   async loadNativeVideo(id, metadata, videoWrapper, specificFileName = null, userVolume = 1) {
     const actual = metadata.metadata ? metadata : { metadata, files: metadata.files };
@@ -258,6 +284,7 @@ export class VideoService {
     }
 
     const url = `https://archive.org/download/${id}/${encodeURIComponent(selected.name)}`;
+    const mime = this.guessMimeType(selected.name);
 
     if (!videoWrapper) {
       throw new Error('Video wrapper not found');
@@ -269,51 +296,22 @@ export class VideoService {
     const oldControls = videoWrapper.querySelector('.video-controls');
     if (oldControls) oldControls.remove();
 
-    let videoEl = videoWrapper.querySelector('video.video-element');
-
-    if (videoEl) {
-      // Reuse the existing element. Just rewire the source so any active
-      // fullscreen state on this element survives the swap.
-      const wasMuted = videoEl.muted;
-      const existingSource = videoEl.querySelector('source');
-      if (existingSource) {
-        existingSource.src = url;
-      } else {
-        videoEl.innerHTML = `<source src="${url}" type="video/mp4">`;
-      }
-      videoEl.removeAttribute('src'); // belt-and-suspenders for some browsers
-      videoEl.setAttribute('controlsList', 'nodownload noremoteplayback nofullscreen');
-      videoEl.disablePictureInPicture = true;
-      try { videoEl.load(); } catch (e) { /* ignore */ }
-      videoEl.muted = wasMuted;
-      // Kick autoplay (the `autoplay` attribute only fires for fresh elements).
-      const playPromise = videoEl.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => { /* user gesture rules can block this; non-fatal */ });
-      }
-    } else {
-      // First-time load: build the element.
-      const videoElement = document.createElement('video');
-      videoElement.className = 'video-element';
-      videoElement.id = 'mainVideo';
-      videoElement.controls = true;
-      // Keep native controls minimal so we don't duplicate fullscreen/pip UI
-      // with the custom polished control bar.
-      videoElement.setAttribute('controlsList', 'nodownload noremoteplayback nofullscreen');
-      videoElement.disablePictureInPicture = true;
-      videoElement.preload = 'metadata';
-      videoElement.autoplay = true;
-      videoElement.playsInline = true;
-      videoElement.setAttribute('playsinline', '');
-
-      const source = document.createElement('source');
-      source.src = url;
-      source.type = 'video/mp4';
-      videoElement.appendChild(source);
-
-      videoWrapper.appendChild(videoElement);
-      videoEl = videoElement;
-    }
+    // Build the element imperatively so we never inject the URL into HTML
+    // (URLs come from Archive.org metadata which we don't trust to be
+    // attribute-safe even after encodeURIComponent).
+    const videoEl = document.createElement('video');
+    videoEl.className = 'video-element';
+    videoEl.id = 'mainVideo';
+    videoEl.controls = true;
+    videoEl.preload = 'metadata';
+    videoEl.autoplay = true;
+    videoEl.playsInline = true;
+    const sourceEl = document.createElement('source');
+    sourceEl.src = url;
+    if (mime) sourceEl.type = mime;
+    videoEl.appendChild(sourceEl);
+    videoEl.appendChild(document.createTextNode('Your browser does not support the video tag.'));
+    videoWrapper.appendChild(videoEl);
 
     this.videoControls = { video: videoEl };
 

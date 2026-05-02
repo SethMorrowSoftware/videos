@@ -42,6 +42,9 @@ class VideoPlayer {
     this.allVideoFiles = []; // All files including quality variants
     this.currentFileName = null;
     this.descriptionExpanded = true;
+    // Tracks playlist indices that have failed to play in this session,
+    // so cascading auto-skip never re-tries a known-bad item.
+    this.failedPlaylistIndices = new Set();
 
     this.initElements();
     this.setupEventListeners();
@@ -280,6 +283,7 @@ class VideoPlayer {
 
   async loadVideo() {
     this.showLoader();
+    this.failedPlaylistIndices = new Set();
 
     try {
       const metadata = await this.videoService.getVideoMetadata(this.videoId);
@@ -288,12 +292,33 @@ class VideoPlayer {
       const meta = metadata.metadata || metadata;
       this.updateVideoInfo(meta);
 
+      // Pre-compute the playable + deduplicated file list BEFORE we kick
+      // off playback, so multi-episode items load the requested track
+      // (or episode 1) instead of whatever the global "best quality"
+      // heuristic happens to pick.
+      const allFiles = this.videoService.getVideoFiles(
+        metadata.metadata ? metadata : { metadata, files: metadata.files }
+      );
+      const deduplicatedFiles = this.videoService.deduplicateVideoFiles(allFiles);
+      const isMultiEpisode = deduplicatedFiles.length > 1
+        && this.videoService.hasMultipleUniqueVideos(deduplicatedFiles);
+
+      let initialFile = null;
+      let startIndex = 0;
+      if (isMultiEpisode) {
+        startIndex = (this.trackIndex !== null
+            && this.trackIndex >= 0
+            && this.trackIndex < deduplicatedFiles.length)
+          ? this.trackIndex : 0;
+        initialFile = deduplicatedFiles[startIndex]?.name || null;
+      }
+
       // Load and play
       const videoData = await this.videoService.loadNativeVideo(
         this.videoId,
         metadata,
         this.videoWrapper,
-        null,
+        initialFile,
         this.getSavedVolume()
       );
 
@@ -317,20 +342,11 @@ class VideoPlayer {
         }, 300);
       }
 
-      // Deduplicate and check for playlist
-      const deduplicatedFiles = this.videoService.deduplicateVideoFiles(videoData.videoFiles);
       this.videoFiles = deduplicatedFiles;
       this.allVideoFiles = videoData.videoFiles;
 
-      if (deduplicatedFiles.length > 1 && this.videoService.hasMultipleUniqueVideos(deduplicatedFiles)) {
-        const startIndex = this.trackIndex !== null && this.trackIndex >= 0 && this.trackIndex < deduplicatedFiles.length
-          ? this.trackIndex : 0;
+      if (isMultiEpisode) {
         this.setupPlaylist(meta, deduplicatedFiles, startIndex);
-
-        // Play the correct track if specified
-        if (startIndex > 0) {
-          this.playPlaylistItem(startIndex);
-        }
       }
 
       // Quality selector for non-playlist single videos
@@ -571,6 +587,41 @@ class VideoPlayer {
     videoEl.addEventListener('volumechange', () => {
       try { localStorage.setItem('playerVolume', videoEl.volume); } catch (e) {}
     });
+
+    // Recover from unplayable files (404, codec mismatch, network errors).
+    // In playlist mode we mark the current track as bad and auto-skip to
+    // the next playable one. In single-video mode we fall back to the
+    // Archive.org iframe, which can handle codecs the native element
+    // can't.
+    videoEl.addEventListener('error', () => {
+      const code = videoEl.error?.code;
+      const msg = videoEl.error?.message || '';
+      // Ignore the spurious empty error fired when we replace src during
+      // teardown — error code 4 (MEDIA_ERR_SRC_NOT_SUPPORTED) with an
+      // empty currentSrc fits that pattern.
+      if (!videoEl.currentSrc) return;
+      console.warn('[player] video element error', { code, msg, src: videoEl.currentSrc });
+
+      const pl = this.playlistService.getPlaylist();
+      if (pl && pl.videoFiles.length > 1) {
+        const failedIdx = this.playlistService.getCurrentIndex();
+        this.failedPlaylistIndices.add(failedIdx);
+        this.toast.show(`Episode ${failedIdx + 1} could not be played, skipping…`, 'error');
+        const nextIdx = this.playlistService.findNextPlayable(this.failedPlaylistIndices);
+        if (nextIdx !== -1) {
+          this.playPlaylistItem(nextIdx);
+        } else {
+          this.toast.show('No more playable episodes in this playlist.', 'error');
+        }
+      } else {
+        this.toast.show('Native playback failed, switching to embed…', 'info');
+        try {
+          this.videoService.loadIframeVideo(this.videoId, this.videoWrapper);
+        } catch (e) {
+          this.showError('Unable to play this video. <a href="index.php">Browse videos</a>');
+        }
+      }
+    });
   }
 
   /**
@@ -741,11 +792,14 @@ class VideoPlayer {
     } catch (err) {
       console.error('Error loading playlist item:', err);
       this.hideLoader();
+      this.failedPlaylistIndices.add(index);
       this.toast.show(`Failed to load episode ${index + 1}`, 'error');
 
-      const nextIdx = this.playlistService.findNextPlayable(new Set([index]));
+      const nextIdx = this.playlistService.findNextPlayable(this.failedPlaylistIndices);
       if (nextIdx !== -1) {
         setTimeout(() => this.playPlaylistItem(nextIdx), 1000);
+      } else {
+        this.toast.show('No more playable episodes in this playlist.', 'error');
       }
     }
   }

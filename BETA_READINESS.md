@@ -1,7 +1,7 @@
 # Beta Readiness Tracker
 
 Living document tracking the pre-beta audit findings and their status.
-Updated: 2026-04-11.
+Updated: 2026-05-02.
 
 The latest audit pass (`claude/audit-beta-release-Rm7Oj`) re-verified
 everything on this list against the current tree, resolved F1/F3/F4/F5
@@ -258,6 +258,83 @@ compile clean on PHP 8.4 with `php -l`.
 - No new blockers surfaced. The remaining open items (R1 CSRF tokens,
   R2 login rate-limiting, and the nice-to-have CSP/HSTS/manifest work)
   are unchanged from the previous pass.
+
+---
+
+## Audit pass 2026-05-02 (branch `claude/fix-video-player-PWNjO`)
+
+End-to-end review of the player, playlist, dedup, and unplayable-file
+filtering paths. Five concrete bugs found and fixed in `player.js` and
+`src/js/services/VideoService.js`. All 71 PHP files still lint clean on
+PHP 8.4. New helper unit-tested in node (filter, dedup, multi-detection,
+chained-suffix normalization, and MIME guesser).
+
+### Fixed in this branch
+
+- **P1. Wrong initial episode for multi-episode items.** When the player
+  page loaded a series without an explicit `?track=`, `loadNativeVideo`
+  selected the *globally* largest MP4 across all files — frequently a
+  later episode's HD master rather than episode 1. The visible playlist
+  highlighted episode 1 while a different episode actually played. Fix:
+  `player.js::loadVideo` now pre-computes `getVideoFiles` →
+  `deduplicateVideoFiles` → `hasMultipleUniqueVideos` *before* invoking
+  playback, then passes the chosen episode's filename as
+  `specificFileName`. Single-video items still use the
+  best-quality-MP4 heuristic.
+
+- **P2. Hardcoded `<source type="video/mp4">`** for every selected file,
+  even `.webm`/`.ogv`/`.mov` derivatives — strict browsers honor the
+  declared type and reject the source. Fix: `VideoService.guessMimeType`
+  maps the chosen filename's extension to the right MIME, returning
+  `null` (no `type` attribute) for formats with no canonical browser
+  type. Element is now built imperatively rather than via `innerHTML`,
+  so URLs from Archive.org metadata never round-trip through HTML
+  parsing.
+
+- **P3. No `error` listener on the `<video>` element.** A 404, codec
+  mismatch (HEVC, AV1 in older Safari), or mid-stream network drop left
+  the user staring at a black frame indefinitely. Fix: `setupVideoListeners`
+  now listens for `error`. In playlist mode the failed track is added to
+  a session-level `failedPlaylistIndices` set and the next playable
+  episode is auto-played (or a "no more playable episodes" toast is
+  shown). In single-video mode we fall back to the Archive.org iframe
+  embed, which can handle codecs the native element can't.
+
+- **P4. `getVideoFiles` filter let through Archive.org sentinel files.**
+  The old filter relied on substring tests (`name.includes('thumb')`,
+  etc.) and an over-broad `isDerivative` clause that accepted any name
+  containing `.mp4`. It correctly excluded `_meta.xml` but not
+  `_archive.torrent`, `_files.json`, `__ia_thumb.gif`, `*.sqlite`,
+  `*.srt`/`*.vtt`, `*.gz`, `.ia` placeholder redirects, etc. Fix:
+  filter is now anchored regex-based — sentinel patterns first, then a
+  positive whitelist of playable + tolerated video extensions or a
+  matching `format` hint. Min-size threshold (100KB) preserved to drop
+  manifests that slip past the format checks.
+
+- **P5. Dedup vs. multi-episode-detect regex drift.** `deduplicateVideoFiles`
+  stripped `.ia` while `hasMultipleUniqueVideos` did not, and stacked
+  derivative suffixes (e.g. `episode_archive_h264.mp4`) only had one
+  layer peeled off — so a series with mixed-suffix MP4s could be
+  mis-classified. Fix: extracted the shared logic into
+  `VideoService.normalizeBaseName`, which iteratively strips extension +
+  derivative suffixes (`_archive`, `_512kb`, `_h264`, quality markers
+  like `_1080p`) until stable. Both functions now use it.
+
+### Re-verified (still good)
+
+- All items from prior passes remain intact.
+- All 71 PHP files pass `php -l` on PHP 8.4.
+- The dead `.ia`-as-fallback branch in `deduplicateVideoFiles` was
+  removed since `getVideoFiles` now drops `.ia` upstream — `.ia` files
+  are Archive.org redirect placeholders and do not play in `<video>`.
+- Service worker registration paths, subdirectory deployment, and all
+  other audit items unchanged.
+
+### Remaining open items
+
+R1 (CSRF tokens), R2 (auth rate-limiting), and the nice-to-have CSP /
+HSTS / manifest items remain unchanged from previous passes. None of
+this audit's fixes touched the security perimeter.
 
 ---
 
