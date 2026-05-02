@@ -11,6 +11,27 @@
 // Security: Check if already installed
 $envFile = __DIR__ . '/.env';
 $lockFile = __DIR__ . '/.installed';
+$step = isset($_GET['step']) ? (int)$_GET['step'] : 1;
+$error = '';
+$success = '';
+
+// Build install-safe URLs that work even in subdirectories or renamed installer files.
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '/install.php';
+$scriptDir = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+$installBasePath = ($scriptDir === '' || $scriptDir === '.') ? '' : $scriptDir;
+$installScript = basename($scriptName) ?: 'install.php';
+
+$buildLocalUrl = function (string $relative = '') use ($installBasePath): string {
+    $relative = ltrim($relative, '/');
+    if ($relative == '') {
+        return $installBasePath === '' ? '/' : $installBasePath . '/';
+    }
+    return ($installBasePath === '' ? '' : $installBasePath . '/') . $relative;
+};
+
+$installStepUrl = function (int $targetStep) use ($buildLocalUrl, $installScript): string {
+    return $buildLocalUrl($installScript . '?step=' . $targetStep);
+};
 
 /**
  * Defensive install guard.
@@ -47,15 +68,11 @@ if ($alreadyInstalled) {
         <h1>Already Installed</h1>
         <p>Archive Film Club is already installed.</p>
         <p><strong>You should delete <code>install.php</code> now</strong> (or uncomment the install.php deny block in <code>.htaccess</code>). If you really need to reinstall from scratch, drop the database tables and remove the <code>.installed</code> file.</p>
-        <p><a href="index.php">Go to Site</a> | <a href="admin.php">Go to Admin</a></p>
+        <p><a href="' . htmlspecialchars($buildLocalUrl('index.php')) . '">Go to Site</a> | <a href="' . htmlspecialchars($buildLocalUrl('admin.php')) . '">Go to Admin</a></p>
     </body>
     </html>
     ');
 }
-
-$step = isset($_GET['step']) ? (int)$_GET['step'] : 1;
-$error = '';
-$success = '';
 
 // Process form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -100,6 +117,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $envContent .= "ENABLE_SEARCH_CACHING=true\n";
                 $envContent .= "ENABLE_USER_SESSIONS=true\n";
                 $envContent .= "ENABLE_API_LOGGING=true\n";
+                $envContent .= "\n# Install path for subdirectory deployments\n";
+                $envContent .= "APP_BASE_PATH={$installBasePath}\n";
 
                 if (file_put_contents($envFile, $envContent)) {
                     // Restrict permissions so other users on the shared host
@@ -108,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // suppress errors and continue.
                     @chmod($envFile, 0600);
 
-                    header('Location: install.php?step=2');
+                    header('Location: ' . $installStepUrl(2));
                     exit;
                 } else {
                     $error = 'Could not write .env file. Please check file permissions.';
@@ -175,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            header('Location: install.php?step=3');
+            header('Location: ' . $installStepUrl(3));
             exit;
 
         } catch (Exception $e) {
@@ -236,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'preferences'   => '{}',
                         ]);
 
-                        header('Location: install.php?step=4');
+                        header('Location: ' . $installStepUrl(4));
                         exit;
                     }
                 }
@@ -285,7 +304,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Create lock file
             file_put_contents($lockFile, date('Y-m-d H:i:s'));
 
-            header('Location: install.php?step=5');
+            header('Location: ' . $installStepUrl(5));
             exit;
 
         } catch (Exception $e) {
@@ -444,6 +463,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <!-- Step 1: Database Configuration -->
         <h2>Step 1: Database Configuration</h2>
         <div class="info">
+            <strong>Detected install path:</strong> <code><?= htmlspecialchars($installBasePath === '' ? '/' : $installBasePath . '/') ?></code><br>
             <strong>cPanel Users:</strong> Go to cPanel &rarr; MySQL Databases to create a database and user.
             Make sure to add the user to the database with ALL PRIVILEGES.
         </div>
@@ -523,7 +543,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <form method="POST">
             <button type="submit">Migrate Data</button>
-            <a href="install.php?step=5" class="btn-secondary" style="display:inline-block; padding:12px 24px; background:#0f3460; color:white; text-decoration:none; border-radius:6px; margin-left:10px;">Skip</a>
+            <a href="<?= htmlspecialchars($installStepUrl(5)) ?>" class="btn-secondary" style="display:inline-block; padding:12px 24px; background:#0f3460; color:white; text-decoration:none; border-radius:6px; margin-left:10px;">Skip</a>
         </form>
 
         <?php elseif ($step === 5): ?>
@@ -535,14 +555,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <p><strong>Next steps:</strong></p>
         <ul>
-            <li>Visit the <a href="admin.php">Admin Panel</a> to manage your site</li>
+            <li>Visit the <a href="<?= htmlspecialchars($buildLocalUrl('admin.php')) ?>">Admin Panel</a> to manage your site</li>
             <li>Delete or rename <code>install.php</code> for security</li>
             <li>Your JSON files are still present as backups</li>
         </ul>
 
         <p style="margin-top: 30px;">
-            <a href="index.php"><button>Go to Site</button></a>
-            <a href="admin.php"><button class="btn-secondary">Go to Admin</button></a>
+            <a href="<?= htmlspecialchars($buildLocalUrl('index.php')) ?>"><button>Go to Site</button></a>
+            <a href="<?= htmlspecialchars($buildLocalUrl('admin.php')) ?>"><button class="btn-secondary">Go to Admin</button></a>
         </p>
 
         <?php endif; ?>
