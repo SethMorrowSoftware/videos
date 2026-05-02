@@ -692,10 +692,35 @@ class ArchiveVideoSearch {
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(link)
         .then(() => this.showMessage('Link copied to clipboard!', 'success'))
-        .catch(() => this.showMessage('Could not copy link', 'error'));
+        .catch(() => this.showShareFallback(link));
     } else {
-      prompt('Copy this link:', link);
+      this.showShareFallback(link);
     }
+  }
+
+  showShareFallback(url) {
+    const overlay = document.createElement('div');
+    overlay.className = 'share-modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Share link');
+    overlay.innerHTML = `
+      <div class="share-modal">
+        <h3>Share this video</h3>
+        <input type="text" class="share-modal-input" readonly />
+        <button type="button" class="share-modal-close">Close</button>
+      </div>`;
+    const input = overlay.querySelector('input');
+    input.value = url;
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+    const close = () => overlay.remove();
+    overlay.querySelector('.share-modal-close').onclick = close;
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(); }
+    });
   }
 
   // ========================================

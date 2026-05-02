@@ -209,6 +209,7 @@ $ogDescription = $collection && $collection['description']
   <?php if ($collection): ?>
   <script type="module">
     import { CollectionService } from './src/js/services/CollectionService.js';
+    import { Toast } from './src/js/components/Toast.js';
 
     const COLLECTION_ID = <?= (int)$collection['id'] ?>;
     const OWNER_MODE = <?= $ownerMode ? 'true' : 'false' ?>;
@@ -221,47 +222,145 @@ $ogDescription = $collection && $collection['description']
         ? $installBase . '/collection.php?u=' . $owner['username'] . '&s=' . $collection['slug']
         : null) ?>;
 
-    // Share button
+    // ---- Modal helpers (replacement for alert/confirm/prompt) ----
+    function buildModal(html) {
+      const overlay = document.createElement('div');
+      overlay.className = 'afc-modal';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.innerHTML = `<div class="afc-modal-card" tabindex="-1">${html}</div>`;
+      document.body.appendChild(overlay);
+      return overlay;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function showConfirm({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false }) {
+      return new Promise(resolve => {
+        const overlay = buildModal(`
+          <h2 class="afc-modal-title">${escapeHtml(title)}</h2>
+          <p class="afc-modal-message">${escapeHtml(message)}</p>
+          <div class="afc-modal-actions">
+            <button type="button" class="btn btn-secondary" data-cancel>${escapeHtml(cancelLabel)}</button>
+            <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-confirm>${escapeHtml(confirmLabel)}</button>
+          </div>
+        `);
+        const close = (val) => { overlay.remove(); resolve(val); };
+        overlay.querySelector('[data-confirm]').addEventListener('click', () => close(true));
+        overlay.querySelector('[data-cancel]').addEventListener('click', () => close(false));
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+        document.addEventListener('keydown', function onKey(e) {
+          if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(false); }
+        });
+        overlay.querySelector('[data-confirm]').focus();
+      });
+    }
+
+    function showEditCollection({ name, isPublic }) {
+      return new Promise(resolve => {
+        const overlay = buildModal(`
+          <h2 class="afc-modal-title">Edit collection</h2>
+          <label class="afc-modal-message" for="afcEditName" style="display:block;">Collection name</label>
+          <input id="afcEditName" type="text" class="afc-modal-input" value="${escapeHtml(name)}" maxlength="150" autocomplete="off" />
+          <label class="afc-modal-checkbox">
+            <input id="afcEditPublic" type="checkbox" ${isPublic ? 'checked' : ''} />
+            <span>Make this collection public (shareable via link)</span>
+          </label>
+          <div class="afc-modal-actions">
+            <button type="button" class="btn btn-secondary" data-cancel>Cancel</button>
+            <button type="button" class="btn btn-primary" data-save>Save changes</button>
+          </div>
+        `);
+        const nameInput = overlay.querySelector('#afcEditName');
+        const publicInput = overlay.querySelector('#afcEditPublic');
+        const close = (val) => { overlay.remove(); resolve(val); };
+        overlay.querySelector('[data-save]').addEventListener('click', () => {
+          const newName = nameInput.value.trim();
+          if (!newName) {
+            nameInput.focus();
+            nameInput.setAttribute('aria-invalid', 'true');
+            return;
+          }
+          close({ name: newName, is_public: publicInput.checked });
+        });
+        overlay.querySelector('[data-cancel]').addEventListener('click', () => close(null));
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+        document.addEventListener('keydown', function onKey(e) {
+          if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(null); }
+        });
+        setTimeout(() => { nameInput.focus(); nameInput.select(); }, 0);
+      });
+    }
+
+    function showShareLink(url) {
+      const overlay = buildModal(`
+        <h2 class="afc-modal-title">Share this collection</h2>
+        <p class="afc-modal-message">Copy the link below and share it anywhere.</p>
+        <input type="text" class="afc-modal-input" value="${escapeHtml(url)}" readonly />
+        <div class="afc-modal-actions">
+          <button type="button" class="btn btn-primary" data-close>Close</button>
+        </div>
+      `);
+      const input = overlay.querySelector('input');
+      input.focus();
+      input.select();
+      overlay.querySelector('[data-close]').addEventListener('click', () => overlay.remove());
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      document.addEventListener('keydown', function onKey(e) {
+        if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); overlay.remove(); }
+      });
+    }
+
+    // ---- Share button ----
     document.querySelector('[data-share-btn]')?.addEventListener('click', async () => {
-      if (!SHARE_URL) return alert('This collection is private. Make it public to share.');
+      if (!SHARE_URL) {
+        Toast.info('This collection is private. Make it public to share.');
+        return;
+      }
       const url = window.location.origin + SHARE_URL;
       try {
-        await navigator.clipboard.writeText(url);
-        alert('Share link copied: ' + url);
-      } catch {
-        prompt('Copy this link:', url);
-      }
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(url);
+          Toast.success('Share link copied to clipboard');
+          return;
+        }
+      } catch (_) { /* fall through */ }
+      showShareLink(url);
     });
 
     if (OWNER_MODE) {
       // Delete
       document.querySelector('[data-delete-btn]')?.addEventListener('click', async () => {
-        if (!confirm('Delete this collection? This cannot be undone.')) return;
+        const ok = await showConfirm({
+          title: 'Delete this collection?',
+          message: 'This will permanently remove the collection and all its items. This cannot be undone.',
+          confirmLabel: 'Delete',
+          cancelLabel: 'Keep it',
+          danger: true,
+        });
+        if (!ok) return;
         try {
           await CollectionService.delete(COLLECTION_ID);
           window.location.href = 'collections.php';
         } catch (err) {
-          alert(err.message || 'Delete failed');
+          Toast.error(err.message || 'Delete failed');
         }
       });
 
-      // Edit (name + public toggle, simple prompt for now)
+      // Edit (name + public toggle)
       document.querySelector('[data-edit-btn]')?.addEventListener('click', async () => {
         const currentName = <?= json_encode($collection['name']) ?>;
-        const currentPublic = IS_PUBLIC;
-        const newName = prompt('Collection name:', currentName);
-        if (newName === null) return;
-        const makePublic = confirm(currentPublic
-          ? 'Keep this collection public? Click Cancel to make it private.'
-          : 'Make this collection public? Click Cancel to keep it private.');
+        const result = await showEditCollection({ name: currentName, isPublic: IS_PUBLIC });
+        if (!result) return;
         try {
-          await CollectionService.update(COLLECTION_ID, {
-            name: newName.trim(),
-            is_public: makePublic,
-          });
+          await CollectionService.update(COLLECTION_ID, result);
           window.location.reload();
         } catch (err) {
-          alert(err.message || 'Update failed');
+          Toast.error(err.message || 'Update failed');
         }
       });
 
@@ -269,13 +368,22 @@ $ogDescription = $collection && $collection['description']
       document.querySelectorAll('[data-remove-item]').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          e.preventDefault();
           const archiveId = btn.dataset.archiveId;
-          if (!confirm('Remove this video from the collection?')) return;
+          const ok = await showConfirm({
+            title: 'Remove this video?',
+            message: 'It will be removed from this collection. The video itself stays on Archive.org.',
+            confirmLabel: 'Remove',
+            cancelLabel: 'Keep',
+            danger: true,
+          });
+          if (!ok) return;
           try {
             await CollectionService.removeItem(COLLECTION_ID, archiveId);
             btn.closest('.collection-card').remove();
+            Toast.success('Removed from collection');
           } catch (err) {
-            alert(err.message || 'Remove failed');
+            Toast.error(err.message || 'Remove failed');
           }
         });
       });

@@ -69,15 +69,14 @@ if ($emailChanged) {
     // Drop verified-at so the user re-verifies the new address.
     $db->query("UPDATE users SET email_verified_at = NULL WHERE id = ?", [$userId]);
 
-    // Fire-and-forget verification email if SMTP is configured.
+    // Fire-and-forget verification email. MailService falls back to PHP mail()
+    // when SMTP isn't configured, so we always attempt to send.
     try {
-        if (getenv('SMTP_HOST')) {
-            $auth = new UserAuthService();
-            $token = $auth->startEmailVerification($userId);
-            $freshUser = $repo->findById($userId);
-            $mail = new MailService();
-            $mail->sendEmailVerification($freshUser, $token);
-        }
+        $auth = new UserAuthService();
+        $token = $auth->startEmailVerification($userId);
+        $freshUser = $repo->findById($userId);
+        $mail = new MailService();
+        $mail->sendEmailVerification($freshUser, $token);
     } catch (Throwable $e) {
         error_log('[api/auth/profile] verification email: ' . $e->getMessage());
     }
