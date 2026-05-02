@@ -297,6 +297,37 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
     <!-- Keyboard Shortcut Indicator -->
     <div id="shortcutIndicator" class="shortcut-indicator" aria-hidden="true"></div>
 
+    <!-- Up Next overlay (autoplay countdown) -->
+    <div id="upNextOverlay" class="up-next-overlay" role="dialog" aria-label="Playing next">
+      <div class="up-next-card">
+        <div class="up-next-eyebrow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Up next
+        </div>
+        <div class="up-next-body">
+          <div class="up-next-thumb">
+            <img id="upNextThumb" src="" alt="" onerror="this.style.display='none'" />
+          </div>
+          <div class="up-next-info">
+            <div id="upNextTitle" class="up-next-title">Next episode</div>
+            <div id="upNextCountdown" class="up-next-countdown">Playing in 8…</div>
+          </div>
+        </div>
+        <div class="up-next-actions">
+          <button id="upNextCancel" type="button" class="up-next-btn up-next-btn-secondary">Cancel</button>
+          <button id="upNextPlay" type="button" class="up-next-btn up-next-btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M5 3L19 12L5 21V3Z"/>
+            </svg>
+            Play now
+          </button>
+        </div>
+        <div class="up-next-progress" aria-hidden="true"><span></span></div>
+      </div>
+    </div>
+
     <!-- Content Below Video -->
     <div class="player-content" id="playerContent">
       <div class="player-content-main">
@@ -307,6 +338,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             <span id="videoCreator" class="player-creator"></span>
             <span id="videoDate" class="player-date"></span>
           </div>
+          <div id="videoMetaPills" class="player-meta-pills" style="display:none;"></div>
           <div id="videoActions" class="player-video-actions">
             <a id="archiveLink" href="#" target="_blank" class="player-pill-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M18 13V19C18 20.1046 17.1046 21 16 21H5C3.89543 21 3 20.1046 3 19V8C3 6.89543 3.89543 6 5 6H11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 3H21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -321,6 +353,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
               Download
             </button>
           </div>
+          <div id="videoTagsRow" class="player-tags-row" style="display:none;"></div>
         </section>
 
         <!-- Description -->
@@ -345,17 +378,17 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       </div>
 
       <!-- Sidebar: Playlist -->
-      <aside id="playlistSidebar" class="player-sidebar" style="display: none;">
+      <aside id="playlistSidebar" class="player-sidebar" style="display: none;" data-density="comfortable">
         <div class="player-sidebar-header">
           <div class="sidebar-header-info">
             <h3 id="playlistTitle">Episodes</h3>
             <span id="playlistCount" class="player-sidebar-count"></span>
           </div>
           <div class="sidebar-header-nav">
-            <button id="sidebarPrevBtn" class="sidebar-nav-btn" disabled title="Previous episode">
+            <button id="sidebarPrevBtn" class="sidebar-nav-btn" disabled title="Previous episode (Shift+P)" aria-label="Previous episode">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button id="sidebarNextBtn" class="sidebar-nav-btn" disabled title="Next episode">
+            <button id="sidebarNextBtn" class="sidebar-nav-btn" disabled title="Next episode (Shift+N)" aria-label="Next episode">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
