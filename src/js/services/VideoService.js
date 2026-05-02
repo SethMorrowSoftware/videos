@@ -282,6 +282,8 @@ export class VideoService {
         videoEl.innerHTML = `<source src="${url}" type="video/mp4">`;
       }
       videoEl.removeAttribute('src'); // belt-and-suspenders for some browsers
+      videoEl.setAttribute('controlsList', 'nodownload noremoteplayback nofullscreen');
+      videoEl.disablePictureInPicture = true;
       try { videoEl.load(); } catch (e) { /* ignore */ }
       videoEl.muted = wasMuted;
       // Kick autoplay (the `autoplay` attribute only fires for fresh elements).
@@ -295,6 +297,10 @@ export class VideoService {
       videoElement.className = 'video-element';
       videoElement.id = 'mainVideo';
       videoElement.controls = true;
+      // Keep native controls minimal so we don't duplicate fullscreen/pip UI
+      // with the custom polished control bar.
+      videoElement.setAttribute('controlsList', 'nodownload noremoteplayback nofullscreen');
+      videoElement.disablePictureInPicture = true;
       videoElement.preload = 'metadata';
       videoElement.autoplay = true;
       videoElement.playsInline = true;
