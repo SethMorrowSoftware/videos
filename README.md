@@ -5,9 +5,11 @@ A feature-rich web application for discovering and watching classic films from [
 ## Features
 
 ### For Viewers
-- **Search & Browse** - Full-text search across Archive.org's video library with 20+ collection filters
-- **Video Player** - Dedicated player page with theater mode, quality selector, and playlist support
-- **Bookmarks** - Save favorite videos for quick access
+- **Search & Browse** - Full-text search across Archive.org's video library with 20+ collection filters and search suggestions
+- **Video Player** - Dedicated player page with multi-episode playlists, quality selector, theater mode, resume-from-where-you-left-off, and an "Up Next" countdown that survives auto-advance
+- **User Accounts** - Register, log in, log out, password reset by email, optional email verification, "remember me" tokens, and account self-service
+- **Bookmarks** - Save favorite videos for quick access; survives logout via guest session and merges into your account on signup
+- **Collections** - Create personal collections of videos, reorder items, add per-item notes, and share publicly with a slug-based URL
 - **Watch History** - Automatic progress tracking with resume support
 - **Offline Support** - Service Worker caching for offline browsing of previously visited pages
 - **Theme Toggle** - Switch between dark and light mode
@@ -22,9 +24,11 @@ A feature-rich web application for discovering and watching classic films from [
 - **Display Options** - Toggle video card metadata, bookmarks, and watch history features
 
 ### Backend
-- **MySQL Database** - Full database support with JSON file fallback
-- **Multi-layer Caching** - Search results (30 min), video metadata (24 hr), and thumbnails (7 day)
-- **RESTful API** - Complete API for search, metadata, bookmarks, history, and settings
+- **Unified User Model** - Guests and accounts share one `users` table, distinguished by `is_guest` and a `role` of `guest|viewer|editor|admin`. Guest activity merges into the new account on signup
+- **MySQL Database** - Full database support with JSON file fallback when the DB is unavailable
+- **Multi-layer Caching** - Browser + service worker, then DB caches (search 30 min, metadata 24 hr, thumbnails 7 day), then JSON file fallback, fronted by an async DB-backed queue
+- **RESTful API** - Complete API for search, metadata, bookmarks, history, collections, user, settings, and auth
+- **Email** - SMTP (no PHPMailer dependency) with a PHP `mail()` fallback; host-header-poisoning safe
 - **Cron Jobs** - Automated cache cleanup, warming, and async processing
 - **Electron Desktop App** - Optional desktop client with Express backend
 
@@ -69,9 +73,13 @@ DB_PASSWORD=your_db_password
 Visit `https://yourdomain.com/install.php` in your browser. The setup wizard will:
 
 1. Test your database connection
-2. Run the database migrations
+2. Run the database migrations (001 → 004)
 3. Create your admin account
 4. Verify the installation
+
+> The first user registered through the installer (or via `register.php` on a
+> fresh install) is automatically promoted to `admin`. Every subsequent signup
+> defaults to the `viewer` role.
 
 > **Important — do one of the following after setup:**
 >
@@ -87,25 +95,20 @@ Visit `https://yourdomain.com/admin.php` and log in with the credentials you cre
 
 ## Manual Database Setup
 
-If you prefer to set up the database manually (e.g., via SSH):
+If you prefer to set up the database manually (e.g., via SSH), run the
+migrations in order:
 
 ```bash
-# Run the initial schema migration
 mysql -u your_db_user -p your_database_name < db/migrations/001_initial_schema.sql
-
-# Run additional migrations
 mysql -u your_db_user -p your_database_name < db/migrations/002_permanent_local_cache.sql
 mysql -u your_db_user -p your_database_name < db/migrations/003_user_accounts.sql
+mysql -u your_db_user -p your_database_name < db/migrations/004_collections.sql
 ```
 
-Create an admin user programmatically:
-
-```php
-<?php
-require_once 'services/AdminAuthService.php';
-$auth = new AdminAuthService();
-$auth->createUser('admin', 'your_secure_password', 'admin@example.com');
-```
+After the migrations are in place, create the first admin account by
+visiting `register.php` in your browser — the first registered account is
+auto-promoted to `admin`. Alternatively, set `ADMIN_PASSWORD` in `.env` as
+a break-glass fallback (and unset it once a real admin account exists).
 
 ## cPanel Hosting
 
@@ -113,9 +116,15 @@ For cPanel shared hosting (e.g., Hostinger, Bluehost, GoDaddy):
 
 1. Go to **cPanel > MySQL Databases** and create a database + user
 2. Add the user to the database with **ALL PRIVILEGES**
-3. Upload files to `public_html/` (or a subdirectory)
+3. Upload files to `public_html/` (or a subdirectory like `public_html/films/`)
 4. Create the `.env` file via **cPanel > File Manager**
 5. Visit `install.php` to complete setup
+
+> **Subdirectory installs work out of the box.** All client and server URLs
+> in this app are relative, the session cookie is install-scoped via
+> `app_cookie_path()`, and the service worker registers from the install
+> directory — so `/films/` and `/shorts/` on the same domain run fully
+> independent installs without colliding.
 
 See [MYSQL_SETUP.md](MYSQL_SETUP.md) for a detailed cPanel walkthrough.
 
@@ -123,14 +132,25 @@ See [MYSQL_SETUP.md](MYSQL_SETUP.md) for a detailed cPanel walkthrough.
 
 ```
 videos/
-├── index.php                  # Main search/browse page
+├── bootstrap.php              # Loaded first by every PHP entrypoint:
+│                              #   .env loader, autoloader, hardened session
+├── index.php                  # Search / browse homepage
 ├── player.php                 # Video player page
 ├── admin.php                  # Admin control panel
-├── install.php                # Setup wizard
-├── app.js                     # Main frontend app
-├── player.js                  # Player logic
+├── install.php                # Setup wizard (delete or htaccess-block after install)
+├── account.php                # Account self-service page
+├── login.php                  # Sign in
+├── register.php               # Sign up
+├── forgot-password.php        # Request a reset link
+├── reset-password.php         # Reset via emailed token
+├── verify-email.php           # Email-verification handler
+├── collection.php             # Single collection view (owner or public-by-slug)
+├── collections.php            # My-collections list
+├── app.js                     # Homepage frontend entry
+├── player.js                  # Player frontend entry
 ├── styles.css                 # Main stylesheet
 ├── player-styles.css          # Player styles
+├── auth-styles.css            # Login / register / reset styles
 ├── sw.js                      # Service worker
 │
 ├── api/                       # REST API endpoints
@@ -139,24 +159,52 @@ videos/
 │   ├── thumbnail.php          # Thumbnail proxy/cache
 │   ├── bookmarks.php          # User bookmarks
 │   ├── history.php            # Watch history
+│   ├── collections.php        # Collections CRUD + public view
+│   ├── user.php               # User info, preferences, search history
 │   ├── recommendations.php    # Staff picks
 │   ├── sections.php           # Featured sections
 │   ├── settings.php           # Site settings
 │   ├── stats.php              # Analytics
-│   ├── cache.php              # Cache management
-│   └── diagnose.php           # System diagnostics
+│   ├── cache.php              # Cache management (admin-gated writes)
+│   ├── diagnose.php           # System diagnostics (admin-gated)
+│   └── auth/                  # Account authentication endpoints
+│       ├── login.php
+│       ├── logout.php
+│       ├── register.php
+│       ├── me.php
+│       ├── profile.php
+│       ├── change-password.php
+│       ├── forgot-password.php
+│       └── reset-password.php
+│
+├── partials/                  # Shared server-rendered fragments
+│   └── header.php             # Site header partial
 │
 ├── db/                        # Database layer
-│   ├── Database.php           # PDO singleton wrapper
+│   ├── Database.php           # PDO singleton + helpers
 │   ├── config.php             # Configuration loader
-│   └── migrations/            # SQL migration files
+│   └── migrations/            # 001 → 004 SQL migration files
 │
-├── services/                  # Business logic
-│   ├── AdminAuthService.php   # Authentication
-│   ├── SettingsService.php    # Settings management
-│   ├── ArchiveOrgService.php  # Archive.org API client
-│   ├── LocalStorageService.php# Local caching service
-│   └── UserService.php        # User management
+├── services/                  # Business logic (PSR-4 autoloaded)
+│   ├── ArchiveOrgService.php  # Archive.org API client + cache glue
+│   ├── SettingsService.php    # Site settings (DB + JSON fallback)
+│   ├── LocalStorageService.php# JSON-file fallback layer
+│   ├── AdminAuthService.php   # Legacy shim (pre-migration-003 installs)
+│   ├── UserService.php        # Legacy session-only user record
+│   ├── Http/
+│   │   └── ApiController.php  # Base class for api/*.php handlers
+│   ├── Auth/
+│   │   └── UserAuthService.php# Register, login, password reset, email verify
+│   ├── User/
+│   │   ├── UserContext.php    # Resolves the current request to a user/guest
+│   │   ├── UserRepository.php # users table CRUD + guest-merge
+│   │   ├── BookmarkService.php
+│   │   ├── WatchHistoryService.php
+│   │   └── SearchHistoryService.php
+│   ├── Collection/
+│   │   └── CollectionService.php
+│   └── Mail/
+│       └── MailService.php    # SMTP or PHP mail() fallback
 │
 ├── cache/                     # Cache management
 │   ├── CacheManager.php       # Cache orchestrator
@@ -169,19 +217,24 @@ videos/
 │   ├── cache_warmer.php       # Pre-warm popular queries
 │   └── process_cache_queue.php# Async cache processing
 │
-├── src/js/                    # Frontend modules
+├── admin/                     # Admin panel internals
+│   ├── controllers/           # Bootstrap + data loading
+│   ├── views/                 # PHP templates (panels)
+│   └── assets/                # admin.css / admin.js
+│
+├── src/js/                    # Frontend ES modules
 │   ├── config.js              # App configuration
-│   ├── components/            # UI components
-│   ├── services/              # API & data services
+│   ├── components/            # UI components (AuthNav, Toast, …)
+│   ├── services/              # API + data services
 │   ├── player/                # Player modules
-│   └── utils/                 # Helpers & utilities
+│   └── utils/                 # Helpers, icons, URL manager
 │
 ├── electron/                  # Desktop app (optional)
 │   ├── main.js                # Electron main process
 │   └── server.js              # Express backend
 │
 ├── .env.example               # Environment template
-├── .htaccess                  # Apache rewrite rules
+├── .htaccess                  # Apache rewrite rules + security denies
 └── package.json               # Node.js dependencies
 ```
 
@@ -204,7 +257,7 @@ videos/
 | `ENABLE_SEARCH_CACHING` | `true` | Enable search result caching |
 | `ENABLE_USER_SESSIONS` | `true` | Enable user session tracking |
 | `ENABLE_API_LOGGING` | `true` | Enable API request logging |
-| `APP_URL` | auto | Base URL used in email links (e.g. password reset) |
+| `APP_URL` | auto | Base URL used in email links (e.g. password reset). Set explicitly in production |
 | `MAIL_FROM` | - | From address for outgoing mail |
 | `MAIL_FROM_NAME` | site name | From name for outgoing mail |
 | `SMTP_HOST` | - | SMTP server (leave blank to use PHP mail()) |
@@ -212,6 +265,9 @@ videos/
 | `SMTP_USERNAME` | - | SMTP auth username |
 | `SMTP_PASSWORD` | - | SMTP auth password |
 | `SMTP_ENCRYPTION` | `tls` | `tls` (STARTTLS) or `ssl` |
+| `ADMIN_PASSWORD` | - | Break-glass admin fallback used only when the DB is unavailable. Leave empty post-install |
+| `THUMBNAIL_CACHE_PATH` | `<install>/thumbnails` | Filesystem path for cached thumbnail files |
+| `LOG_PATH` | `<install>/logs` | Filesystem path for app log files |
 
 ### Cron Jobs (Optional)
 
@@ -230,7 +286,12 @@ Set up cron jobs for automated cache management:
 
 ## API Reference
 
-All API endpoints are located under `/api/` and return JSON responses.
+All API endpoints are located under `/api/` and return JSON responses. All
+handlers extend `services/Http/ApiController.php`, which sets the JSON
+content type, gates auth/admin where needed, and provides input
+sanitizers.
+
+### Public + viewer endpoints
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -240,11 +301,67 @@ All API endpoints are located under `/api/` and return JSON responses.
 | `/api/recommendations.php` | GET | Get staff picks |
 | `/api/sections.php` | GET | Get featured sections |
 | `/api/settings.php` | GET | Get site settings |
-| `/api/bookmarks.php` | GET/POST/DELETE | Manage user bookmarks |
-| `/api/history.php` | GET/POST | Watch history & progress |
+| `/api/bookmarks.php` | GET/POST/DELETE | Manage bookmarks for the current user/guest |
+| `/api/history.php` | GET/POST | Watch history & progress for the current user/guest |
+| `/api/collections.php` | GET/POST | Collections CRUD; supports public lookup by `username` + `slug` |
+| `/api/user.php` | GET/POST | User info, preferences, and recent search history |
 | `/api/stats.php` | GET | Site analytics |
-| `/api/cache.php` | GET/POST | Cache management |
-| `/api/diagnose.php` | GET | System diagnostics |
+
+### Authentication endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/auth/register.php` | POST | Create an account; first registered account is auto-promoted to admin |
+| `/api/auth/login.php` | POST | Sign in; issues a session and optional remember-me token |
+| `/api/auth/logout.php` | POST | Invalidate session + remember-me token |
+| `/api/auth/me.php` | GET | Return the current user (used to hydrate the header `AuthNav`) |
+| `/api/auth/profile.php` | POST | Update display name / email (re-triggers email verification on change) |
+| `/api/auth/change-password.php` | POST | Change password while signed in |
+| `/api/auth/forgot-password.php` | POST | Send password-reset email |
+| `/api/auth/reset-password.php` | POST | Consume a reset token and set a new password |
+
+### Admin endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/cache.php` | GET/POST | Cache stats (GET); destructive actions require `admin`/`editor` role |
+| `/api/diagnose.php` | GET | System diagnostics; admin-gated |
+
+## Security
+
+The app ships with a verified baseline (see `BETA_READINESS.md` for the
+audit log):
+
+- **Prepared statements everywhere** via `db/Database.php`; no SQL string
+  concatenation
+- **Output escaping** with `htmlspecialchars(..., ENT_QUOTES)` on every
+  template branch
+- **Hardened sessions** — `httponly`, `secure` (when HTTPS), `SameSite=Lax`,
+  and an install-scoped cookie `path` so sibling subdirectory installs
+  don't share sessions
+- **Password storage** with `password_hash(PASSWORD_DEFAULT)`; remember-me,
+  password-reset, and email-verification tokens are SHA-256 hashed at rest
+  and only the raw token leaves the server (in the cookie or email link)
+- **`session_regenerate_id(true)`** on login, register, and password reset
+- **SSRF pin** — the metadata + thumbnail proxies refuse to fetch anything
+  outside `archive.org`
+- **Open-redirect whitelist** via `afc_safe_next()` (server + client)
+- **`.htaccess` defenses** — HTTPS force, deny on `.env`, `Database.php`,
+  `config.php`, `*.md`, `*.sql`, `*.log`, no directory indexing, and
+  standard `X-Content-Type-Options` / `X-Frame-Options` /
+  `Referrer-Policy` headers
+- **Installer dual-guard** — refuses to run once a `.installed` marker
+  exists or once an admin row is present, and `chmod`s `.env` to `0600`
+
+> **Post-install hardening:** delete `install.php` from the server *or*
+> uncomment the `<FilesMatch "^install\.php$">` deny block near the
+> bottom of `.htaccess`. Unset `ADMIN_PASSWORD` in `.env` once you have a
+> real admin account. Both are documented in BETA_READINESS.md.
+
+Known gaps accepted for beta (also tracked in `BETA_READINESS.md`):
+no CSRF tokens (the app relies on `SameSite=Lax` + JSON-only POSTs), no
+login rate-limiting, and `Content-Security-Policy` / `Strict-Transport-Security`
+headers are not yet emitted.
 
 ## Desktop App (Electron)
 
