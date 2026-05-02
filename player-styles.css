@@ -272,6 +272,14 @@
   pointer-events: auto;
 }
 
+/* Hide the bar entirely when nothing inside is currently visible.
+   With the playlist/quality controls hidden by inline style on
+   single-episode, single-quality videos, the gradient would otherwise
+   appear on hover with no content underneath it. */
+.player-controls-bar:not(:has(.controls-bar-left > *:not([style*="display:none"]):not([style*="display: none"]))):not(:has(.controls-bar-right > *:not([style*="display:none"]):not([style*="display: none"]))) {
+  display: none;
+}
+
 .controls-bar-left,
 .controls-bar-right {
   display: flex;
@@ -404,16 +412,6 @@
   color: rgba(255, 255, 255, 0.4);
   font-weight: 400;
 }
-
-/* Theater mode button */
-.theater-collapse { display: none; }
-.player-page.theater-mode .theater-expand { display: none; }
-.player-page.theater-mode .theater-collapse { display: block; }
-
-/* Fullscreen button */
-.fs-collapse { display: none; }
-body.player-is-fullscreen .fs-expand { display: none; }
-body.player-is-fullscreen .fs-collapse { display: block; }
 
 /* Fullscreen on the cinema container — let the video fill the whole screen
    while keeping our Up Next overlay + shortcut indicator visible. */

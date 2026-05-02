@@ -286,14 +286,6 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             </button>
             <div id="qualityMenu" class="quality-menu"></div>
           </div>
-          <button id="theaterModeBtn" class="pctl-btn" title="Theater mode (t)" aria-label="Toggle theater mode">
-            <svg class="theater-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7V5C3 3.89543 3.89543 3 5 3H7M17 3H19C20.1046 3 21 3.89543 21 5V7M21 17V19C21 20.1046 20.1046 21 19 21H17M7 21H5C3.89543 21 3 20.1046 3 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <svg class="theater-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3V5C8 6.10457 7.10457 7 6 7H4M20 7H18C16.8954 7 16 6.10457 16 5V3M16 21V19C16 17.8954 16.8954 17 18 17H20M4 17H6C7.10457 17 8 17.8954 8 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          </button>
-          <button id="fullscreenBtn" class="pctl-btn" title="Fullscreen (f)" aria-label="Toggle fullscreen">
-            <svg class="fs-expand" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3H5C3.89543 3 3 3.89543 3 5V8M16 3H19C20.1046 3 21 3.89543 21 5V8M3 16V19C3 20.1046 3.89543 21 5 21H8M21 16V19C21 20.1046 20.1046 21 19 21H16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <svg class="fs-collapse" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 9H8C8.55228 9 9 8.55228 9 8V5M16 5V8C16 8.55228 16.4477 9 17 9H20M9 16V19C9 19.5523 8.55228 20 8 20H5M16 19V16C16 15.4477 16.4477 15 17 15H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
         </div>
       </div>
 

@@ -20,7 +20,6 @@ export class PlayerUI {
   initElements() {
     this.playerCinema = document.getElementById('playerCinema');
     this.controlsBar = document.getElementById('controlsBar');
-    this.theaterModeBtn = document.getElementById('theaterModeBtn');
     this.qualitySelector = document.getElementById('qualitySelector');
     this.qualityBtn = document.getElementById('qualityBtn');
     this.qualityLabel = document.getElementById('qualityLabel');
@@ -38,21 +37,16 @@ export class PlayerUI {
   }
 
   // ========================================
-  // Theater Mode
+  // Theater Mode (toggled via the `t` keyboard shortcut)
   // ========================================
 
   setupTheaterMode() {
-    if (!this.theaterModeBtn) return;
-
-    // Restore saved preference
     try {
       this.theaterMode = localStorage.getItem('theaterMode') === 'true';
       if (this.theaterMode) {
         document.body.classList.add('theater-mode');
       }
     } catch (e) {}
-
-    this.theaterModeBtn.addEventListener('click', () => this.toggleTheaterMode());
   }
 
   toggleTheaterMode() {
