@@ -126,7 +126,7 @@ For cPanel shared hosting (e.g., Hostinger, Bluehost, GoDaddy):
 > directory — so `/films/` and `/shorts/` on the same domain run fully
 > independent installs without colliding.
 
-See [MYSQL_SETUP.md](MYSQL_SETUP.md) for a detailed cPanel walkthrough.
+The setup flow above is the current, supported path for cPanel installs.
 
 ## Project Structure
 
@@ -258,6 +258,12 @@ videos/
 | `ENABLE_USER_SESSIONS` | `true` | Enable user session tracking |
 | `ENABLE_API_LOGGING` | `true` | Enable API request logging |
 | `APP_URL` | auto | Base URL used in email links (e.g. password reset). Set explicitly in production |
+
+## Maintenance Notes
+
+- Keep `README.md` as the canonical documentation source for setup and operations.
+- Historical internal audit/planning notes have been removed from the repository to reduce drift.
+- If behavior changes, update this README in the same pull request as the code change.
 | `MAIL_FROM` | - | From address for outgoing mail |
 | `MAIL_FROM_NAME` | site name | From name for outgoing mail |
 | `SMTP_HOST` | - | SMTP server (leave blank to use PHP mail()) |
@@ -329,8 +335,7 @@ sanitizers.
 
 ## Security
 
-The app ships with a verified baseline (see `BETA_READINESS.md` for the
-audit log):
+The app ships with a verified security baseline:
 
 - **Prepared statements everywhere** via `db/Database.php`; no SQL string
   concatenation
@@ -356,9 +361,9 @@ audit log):
 > **Post-install hardening:** delete `install.php` from the server *or*
 > uncomment the `<FilesMatch "^install\.php$">` deny block near the
 > bottom of `.htaccess`. Unset `ADMIN_PASSWORD` in `.env` once you have a
-> real admin account. Both are documented in BETA_READINESS.md.
+> real admin account.
 
-Known gaps accepted for beta (also tracked in `BETA_READINESS.md`):
+Known gaps accepted for beta:
 no CSRF tokens (the app relies on `SameSite=Lax` + JSON-only POSTs), no
 login rate-limiting, and `Content-Security-Policy` / `Strict-Transport-Security`
 headers are not yet emitted.
