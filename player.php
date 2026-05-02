@@ -303,7 +303,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
           </div>
           <div class="up-next-body">
             <div class="up-next-thumb">
-              <img id="upNextThumb" src="" alt="" onerror="this.style.display='none'" />
+              <img id="upNextThumb" src="" alt="" hidden />
             </div>
             <div class="up-next-info">
               <div id="upNextTitle" class="up-next-title">Next episode</div>

@@ -44,13 +44,12 @@ session_regenerate_id(true);
 $_SESSION['user_id'] = (int)$user['id'];
 $_SESSION['user_role'] = $user['role'];
 
-// Fire and forget verification email if SMTP is configured
+// Fire-and-forget verification email. MailService falls back to PHP mail()
+// when SMTP isn't configured, so we always attempt to send.
 try {
-    if (getenv('SMTP_HOST')) {
-        $token = $auth->startEmailVerification((int)$user['id']);
-        $mail = new MailService();
-        $mail->sendEmailVerification($user, $token);
-    }
+    $token = $auth->startEmailVerification((int)$user['id']);
+    $mail = new MailService();
+    $mail->sendEmailVerification($user, $token);
 } catch (Throwable $e) {
     error_log('[api/auth/register] verification email: ' . $e->getMessage());
 }

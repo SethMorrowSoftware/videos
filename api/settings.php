@@ -38,7 +38,7 @@ $schema = [
     'showDownloadCount' => ['type' => 'bool', 'default' => true],
     'showCreator' => ['type' => 'bool', 'default' => true],
     'showDate' => ['type' => 'bool', 'default' => true],
-    'enableBookmarks' => ['type' => 'bool', 'default' => false],
+    'enableBookmarks' => ['type' => 'bool', 'default' => true],
     'enableWatchHistory' => ['type' => 'bool', 'default' => true],
     'defaultCollection' => ['type' => 'string', 'default' => 'all_videos', 'maxLength' => 50],
     'defaultSort' => ['type' => 'enum', 'default' => 'downloads', 'values' => ['downloads', 'date', 'title', 'relevance', 'creator']],

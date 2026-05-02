@@ -80,6 +80,14 @@ class VideoPlayer {
     this.closeDownloads = document.getElementById('closeDownloads');
     this.upNextOverlay = document.getElementById('upNextOverlay');
     this.upNextThumb = document.getElementById('upNextThumb');
+    if (this.upNextThumb) {
+      this.upNextThumb.addEventListener('error', () => {
+        this.upNextThumb.hidden = true;
+      });
+      this.upNextThumb.addEventListener('load', () => {
+        this.upNextThumb.hidden = false;
+      });
+    }
     this.upNextTitle = document.getElementById('upNextTitle');
     this.upNextCountdown = document.getElementById('upNextCountdown');
     this.upNextPlay = document.getElementById('upNextPlay');
@@ -642,6 +650,7 @@ class VideoPlayer {
     const cleanTitle = this.videoService.getCleanTitle(nextFile.name, itemTitle);
 
     if (this.upNextThumb) {
+      this.upNextThumb.hidden = false;
       this.upNextThumb.src = `https://archive.org/services/img/${pl.id}`;
     }
     if (this.upNextTitle) {

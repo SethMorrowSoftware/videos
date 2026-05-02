@@ -696,7 +696,8 @@
             const enabled = document.getElementById('editSectionEnabled')?.checked;
 
             if (!title) {
-                alert('Section title is required');
+                showToast('Section title is required', 'error');
+                document.getElementById('editSectionTitle')?.focus();
                 return;
             }
 
