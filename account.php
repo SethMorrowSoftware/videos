@@ -51,6 +51,10 @@ $verified = !empty($current['email_verified_at']);
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Account · <?= htmlspecialchars($site_settings['siteName'], ENT_QUOTES) ?></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth-styles.css">
   <style>
@@ -74,6 +78,29 @@ $verified = !empty($current['email_verified_at']);
   <?php include __DIR__ . '/partials/header.php'; ?>
 
   <main class="account-layout">
+    <header class="account-hero">
+      <div class="account-hero-avatar"><?= htmlspecialchars(strtoupper(mb_substr($current['display_name'] ?: $current['username'], 0, 1)), ENT_QUOTES) ?></div>
+      <div class="account-hero-info">
+        <h1><?= htmlspecialchars($current['display_name'] ?: $current['username'], ENT_QUOTES) ?></h1>
+        <p>@<?= htmlspecialchars($current['username'], ENT_QUOTES) ?> &middot; <?= htmlspecialchars($roleLabel, ENT_QUOTES) ?></p>
+      </div>
+    </header>
+
+    <section class="account-stats" aria-label="Account stats">
+      <div class="account-stat">
+        <div class="account-stat-label">Bookmarks</div>
+        <div class="account-stat-value"><?= $bookmarkCount ?></div>
+      </div>
+      <div class="account-stat">
+        <div class="account-stat-label">Watch history</div>
+        <div class="account-stat-value"><?= $historyCount ?></div>
+      </div>
+      <div class="account-stat">
+        <div class="account-stat-label">Member since</div>
+        <div class="account-stat-value" style="font-size:var(--font-size-base); font-weight:var(--font-weight-semibold);"><?= htmlspecialchars($createdAt, ENT_QUOTES) ?></div>
+      </div>
+    </section>
+
     <section class="account-section">
       <h2>Profile</h2>
       <dl class="account-meta">
@@ -83,16 +110,13 @@ $verified = !empty($current['email_verified_at']);
         <dd>
           <?= htmlspecialchars($current['email'] ?: '—', ENT_QUOTES) ?>
           <?php if ($verified): ?>
-            <span style="color:var(--color-success); margin-left:8px;">✓ Verified</span>
+            <span class="badge" style="background:var(--color-success-bg); color:var(--color-success); margin-left:8px;">✓ Verified</span>
           <?php else: ?>
-            <span style="color:var(--color-warning); margin-left:8px;">Unverified</span>
+            <span class="badge" style="background:var(--color-warning-bg); color:var(--color-warning); margin-left:8px;">Unverified</span>
           <?php endif; ?>
         </dd>
         <dt>Role</dt><dd><?= htmlspecialchars($roleLabel, ENT_QUOTES) ?></dd>
-        <dt>Member since</dt><dd><?= htmlspecialchars($createdAt, ENT_QUOTES) ?></dd>
         <dt>Last active</dt><dd><?= htmlspecialchars($lastSeen, ENT_QUOTES) ?></dd>
-        <dt>Bookmarks</dt><dd><?= $bookmarkCount ?></dd>
-        <dt>Watch history</dt><dd><?= $historyCount ?> video<?= $historyCount === 1 ? '' : 's' ?></dd>
       </dl>
     </section>
 
@@ -122,13 +146,21 @@ $verified = !empty($current['email_verified_at']);
       <div class="auth-alert auth-alert--success" data-pw-success role="status"></div>
 
       <form class="auth-form" data-password-form novalidate>
-        <div class="auth-field">
+        <div class="auth-field auth-field-password">
           <label for="oldPassword">Current password</label>
           <input id="oldPassword" name="oldPassword" type="password" autocomplete="current-password" required>
+          <button type="button" class="auth-password-toggle" data-password-toggle="oldPassword" aria-label="Show password" title="Show password">
+            <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
         </div>
-        <div class="auth-field">
+        <div class="auth-field auth-field-password">
           <label for="newPassword">New password</label>
           <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="8" required>
+          <button type="button" class="auth-password-toggle" data-password-toggle="newPassword" aria-label="Show password" title="Show password">
+            <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
           <div class="field-hint">At least 8 characters.</div>
         </div>
         <button type="submit" class="auth-submit">Change password</button>
@@ -137,14 +169,33 @@ $verified = !empty($current['email_verified_at']);
 
     <section class="account-section account-danger">
       <h2>Sign out</h2>
-      <p style="color:var(--color-text-secondary); font-size:var(--font-size-sm); margin-bottom:var(--space-4);">
+      <p style="color:var(--color-text-secondary); font-size:var(--font-size-sm); margin-bottom:var(--space-4); line-height:1.6;">
         Sign out on this device. Your data stays on the server and will be available when you sign back in.
       </p>
-      <button type="button" class="auth-submit" style="background:var(--color-error);" data-logout-btn>
+      <button type="button" class="auth-submit" style="background:var(--color-error); box-shadow: 0 6px 18px color-mix(in srgb, var(--color-error) 35%, transparent);" data-logout-btn>
         Sign out
       </button>
     </section>
   </main>
+
+  <!-- Password visibility toggle -->
+  <script>
+    (function() {
+      var toggles = document.querySelectorAll('[data-password-toggle]');
+      toggles.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var id = btn.getAttribute('data-password-toggle');
+          var input = document.getElementById(id);
+          if (!input) return;
+          var revealed = input.type === 'text';
+          input.type = revealed ? 'password' : 'text';
+          btn.setAttribute('data-revealed', revealed ? 'false' : 'true');
+          btn.setAttribute('aria-label', revealed ? 'Show password' : 'Hide password');
+          btn.setAttribute('title', revealed ? 'Show password' : 'Hide password');
+        });
+      });
+    })();
+  </script>
 
   <script type="module">
     import { AuthService } from './src/js/services/AuthService.js';
