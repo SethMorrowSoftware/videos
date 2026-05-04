@@ -249,10 +249,20 @@
   text-decoration: underline;
 }
 
-/* ---- Controls Bar (bottom of cinema) ---- */
+/* ---- Controls Bar (top of cinema, clear of native HTML5 controls) ----
+   Sits ABOVE the native HTML5 video scrubber, not on top of it. Putting it
+   at the bottom (where the native timeline lives) caused clicks/drags on
+   empty bar regions to be swallowed by the overlay, breaking seek on
+   videos that triggered the bar (multi-episode or multi-quality items).
+   Offset by the 52px page header so episode/quality buttons aren't hidden
+   under the back/auth buttons; fullscreen resets to top:0 because the
+   page header is gone there.
+   The bar itself never captures pointer events — only its actual buttons
+   do — so even when it visually overlaps anything, clicks pass through
+   to the native controls below. */
 .player-controls-bar {
   position: absolute;
-  bottom: 0;
+  top: 52px;
   left: 0;
   right: 0;
   z-index: 10;
@@ -260,16 +270,20 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.3) 60%, transparent 100%);
   opacity: 0;
   transition: opacity 0.3s ease;
+  /* Bar is a visual gradient + container — never the click target. Children
+     that are actually interactive get pointer-events: auto restored below. */
   pointer-events: none;
 }
 
 .player-cinema:hover .player-controls-bar,
 .player-controls-bar:focus-within {
   opacity: 1;
-  pointer-events: auto;
+  /* Intentionally do NOT toggle pointer-events on the bar itself; the
+     gradient/empty regions must always pass clicks through to the video
+     element (and its native timeline scrubber) underneath. */
 }
 
 /* Hide the bar entirely when nothing inside is currently visible.
@@ -285,6 +299,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Restore interactivity on the actual control groups so their buttons
+     remain clickable while the parent bar stays click-through. */
+  pointer-events: auto;
 }
 
 /* Player control buttons */
@@ -347,7 +364,7 @@
 
 .quality-menu {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   right: 0;
   min-width: 200px;
   background: rgba(20, 20, 20, 0.97);
@@ -367,7 +384,7 @@
 }
 
 @keyframes qualityMenuIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -429,7 +446,10 @@
 
 .player-cinema:fullscreen .player-controls-bar,
 .player-cinema:-webkit-full-screen .player-controls-bar {
-  /* Sit above the native HTML5 controls and stay reachable on hover. */
+  /* Sit above the native HTML5 controls and stay reachable on hover.
+     Reset the header offset because the page header is hidden in
+     fullscreen mode. */
+  top: 0;
   z-index: 12;
 }
 
