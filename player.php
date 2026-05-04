@@ -61,50 +61,95 @@ $ogType = 'website';
 $pageTitle = $site_settings['siteName'];
 $useVideoThumbnail = false;
 
-// Fetch video metadata for OG tags
+// Fetch video metadata for OG tags. Prefer the local cache (instant) and
+// only fall back to a quick blocking fetch from archive.org if we have no
+// cached copy at all. This used to do an unconditional 5-second blocking
+// fetch on every player page load.
 if (isset($_GET['video']) && !empty($_GET['video'])) {
     $videoId = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['video']);
 
     if (!empty($videoId)) {
-        $metadataUrl = "https://archive.org/metadata/{$videoId}";
-        $context = stream_context_create([
-            'http' => [
-                'timeout' => 5,
-                'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
-                'ignore_errors' => true
-            ]
-        ]);
+        $metadata = null;
 
-        $response = @file_get_contents($metadataUrl, false, $context);
-
-        if ($response !== false) {
-            $data = json_decode($response, true);
-            if ($data && isset($data['metadata'])) {
-                $metadata = $data['metadata'];
-
-                if (isset($metadata['title'])) {
-                    $title = is_array($metadata['title']) ? $metadata['title'][0] : $metadata['title'];
-                    $ogTitle = $title;
-                    $pageTitle = $title . " - " . $site_settings['siteName'];
+        // 1. Try the local metadata cache first (instant)
+        if (class_exists('CacheManager')) {
+            try {
+                $cm = new CacheManager();
+                $cached = $cm->getMetadataCache($videoId);
+                if ($cached) {
+                    // The cache stores a flat shape; rebuild a "metadata"
+                    // dictionary that mimics archive.org's response so the
+                    // existing extract logic below works unchanged.
+                    $metadata = [
+                        'title' => $cached['title'] ?? null,
+                        'description' => $cached['description'] ?? null,
+                        'creator' => $cached['creator'] ?? null,
+                    ];
                 }
+            } catch (Throwable $e) {
+                // Cache table missing — fall through to direct fetch
+            }
+        }
 
-                if (isset($metadata['description'])) {
-                    $desc = is_array($metadata['description']) ? $metadata['description'][0] : $metadata['description'];
-                    $desc = strip_tags($desc);
-                    $ogDescription = strlen($desc) > 200 ? substr($desc, 0, 197) . '...' : $desc;
-                }
+        // 2. Cache miss — make a short blocking fetch to archive.org. Keep
+        //    the timeout tight so a flaky upstream can't blow up TTFB.
+        if ($metadata === null) {
+            $metadataUrl = "https://archive.org/metadata/{$videoId}";
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 2,
+                    'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                    'ignore_errors' => true
+                ]
+            ]);
 
-                if (isset($metadata['creator'])) {
-                    $creator = is_array($metadata['creator']) ? $metadata['creator'][0] : $metadata['creator'];
-                    if (!empty($creator)) {
-                        $ogDescription = "By " . $creator . " - " . $ogDescription;
+            $response = @file_get_contents($metadataUrl, false, $context);
+
+            if ($response !== false) {
+                $data = json_decode($response, true);
+                if ($data && isset($data['metadata'])) {
+                    $metadata = $data['metadata'];
+
+                    // Best-effort: stash this in the local cache so the next
+                    // page load skips the blocking call entirely.
+                    if (class_exists('LocalStorageService')) {
+                        try {
+                            $lss = new LocalStorageService();
+                            $lss->cacheItem($videoId, null, true);
+                        } catch (Throwable $e) {
+                            // Silent — we already have the data we need
+                        }
                     }
                 }
-
-                $ogImage = "https://archive.org/services/img/{$videoId}";
-                $useVideoThumbnail = true;
-                $ogType = 'video.other';
             }
+        }
+
+        if (is_array($metadata)) {
+            if (isset($metadata['title'])) {
+                $title = is_array($metadata['title']) ? $metadata['title'][0] : $metadata['title'];
+                $ogTitle = $title;
+                $pageTitle = $title . " - " . $site_settings['siteName'];
+            }
+
+            if (isset($metadata['description'])) {
+                $desc = is_array($metadata['description']) ? $metadata['description'][0] : $metadata['description'];
+                $desc = strip_tags($desc);
+                $ogDescription = strlen($desc) > 200 ? substr($desc, 0, 197) . '...' : $desc;
+            }
+
+            if (isset($metadata['creator'])) {
+                $creator = is_array($metadata['creator']) ? $metadata['creator'][0] : $metadata['creator'];
+                if (!empty($creator)) {
+                    $ogDescription = "By " . $creator . " - " . $ogDescription;
+                }
+            }
+
+            // OG image must be a fully-qualified URL for social-media
+            // crawlers. Hot-link to archive.org here — the local proxy is
+            // for visitor-facing img tags, not for crawlers.
+            $ogImage = "https://archive.org/services/img/{$videoId}";
+            $useVideoThumbnail = true;
+            $ogType = 'video.other';
         }
     }
 }

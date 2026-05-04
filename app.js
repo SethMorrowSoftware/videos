@@ -75,32 +75,27 @@ class ArchiveVideoSearch {
     this.loadUserPreferences();
     this.setupSearchSuggestions();
 
-    // Initialize recommended section and featured sections FIRST (highest priority)
+    // Initialize recommended section and featured sections.
+    // These render independently from the search results — there's no
+    // ordering constraint, so kick them off in parallel WITH the search
+    // rather than blocking the search behind them. Previously the search
+    // was gated behind a Promise.race with a 3s timeout, which meant the
+    // perceived load time of the page was always >= 3s (or as long as
+    // archive.org's metadata endpoint took, whichever was less). With
+    // server-side prefetch the sections render almost instantly anyway.
     this.recommendedManager = new RecommendedManager(this);
     this.featuredSectionsManager = new FeaturedSectionsManager(this);
     window.featuredSectionsManager = this.featuredSectionsManager;
 
-    // Load sections in parallel, then trigger search after they render
-    this._sectionsReady = Promise.all([
-      this.recommendedManager.init().then(() => {
-        console.log('Recommended section initialized');
-      }).catch(err => {
-        console.error('Failed to init recommended:', err);
-      }),
-      this.featuredSectionsManager.init().then(() => {
-        console.log('Featured sections initialized');
-      }).catch(err => {
-        console.error('Failed to init featured sections:', err);
-      })
-    ]);
-
-    // Defer search until sections have loaded (or 3s timeout as fallback)
-    Promise.race([
-      this._sectionsReady,
-      new Promise(resolve => setTimeout(resolve, 3000))
-    ]).then(() => {
-      this.handleUrlParameters();
+    this.recommendedManager.init().catch(err => {
+      console.error('Failed to init recommended:', err);
     });
+    this.featuredSectionsManager.init().catch(err => {
+      console.error('Failed to init featured sections:', err);
+    });
+
+    // Search runs immediately, in parallel with sections
+    this.handleUrlParameters();
 
     // Setup offline handler callbacks
     this.offlineHandler.onStatusChange((isOnline) => {
@@ -649,6 +644,7 @@ class ArchiveVideoSearch {
                alt="Thumbnail for ${escapeHtml(title)}"
                class="result-thumb"
                loading="lazy"
+               decoding="async"
                onerror="this.style.display='none'; this.parentNode.innerHTML='<div class=thumb-placeholder>${placeholderIcon}</div>'"/>
           ${runtime && mediatype !== 'collection' ? `<span class="runtime-badge">${runtime}</span>` : ''}
           ${isPD ? `<span class="license-badge">Public Domain</span>` : ''}

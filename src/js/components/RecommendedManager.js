@@ -44,32 +44,113 @@ export class RecommendedManager {
       return;
     }
 
-    await this.loadVideos();
+    const ids = this.config.videos.map(v => v.id).filter(Boolean);
+    if (ids.length === 0) return;
+
+    // Use server-prefetched metadata as a starting point — it's whatever
+    // we already had cached server-side, may be empty or partial.
+    const prefetched = this.loadPrefetchedMetadata() || {};
+    const missing = ids.filter(id => !prefetched[id]);
+
+    // Render immediately with whatever we have (prefetched or stub).
+    // This is the critical fast path: cached homepages render in <50ms
+    // with no JS-side network wait.
+    this.videos = this.buildVideosFromMap(ids, prefetched);
     this.render();
+
+    // If anything was missing from the prefetch, fetch it in the
+    // background and update only the affected cards.
+    if (missing.length > 0) {
+      this.fetchMissingAndUpdate(missing, prefetched);
+    }
   }
 
-  async loadVideos() {
-    const videoPromises = this.config.videos.map(async (item) => {
-      try {
-        const response = await fetch(`https://archive.org/metadata/${item.id}`);
-        if (!response.ok) return null;
+  async fetchMissingAndUpdate(missingIds, currentMap) {
+    const fetched = await this.fetchBatchMetadata(missingIds);
 
-        const data = await response.json();
-        if (!data.metadata) return null;
+    // Bail out if the fetch returned nothing useful — no point re-rendering
+    // identical cards.
+    if (!fetched || Object.keys(fetched).length === 0) {
+      return;
+    }
 
-        return {
-          ...data.metadata,
-          identifier: item.id,
-          adminNote: item.note
-        };
-      } catch (e) {
-        console.warn(`Failed to load recommended video: ${item.id}`, e);
-        return null;
+    const merged = { ...currentMap, ...fetched };
+    const ids = this.config.videos.map(v => v.id).filter(Boolean);
+    this.videos = this.buildVideosFromMap(ids, merged);
+
+    // Re-render only if the section is still visible — user might have
+    // hidden it in the meantime.
+    if (this.section && this.section.style.display !== 'none') {
+      this.render();
+    }
+  }
+
+  loadPrefetchedMetadata() {
+    const el = document.getElementById('recommendedMetadataPrefetch');
+    if (!el || !el.textContent.trim()) return null;
+    try {
+      const data = JSON.parse(el.textContent);
+      return data && typeof data === 'object' ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  buildVideosFromMap(ids, metadataMap) {
+    const configById = new Map(this.config.videos.map(v => [v.id, v]));
+    const out = [];
+    for (const id of ids) {
+      const meta = metadataMap[id];
+      const item = configById.get(id) || {};
+      if (meta) {
+        out.push({ ...meta, identifier: id, adminNote: item.note });
+      } else {
+        // Fallback stub - at least we have title/creator from config
+        out.push({
+          identifier: id,
+          title: item.title || id,
+          creator: item.creator || 'Unknown',
+          adminNote: item.note,
+        });
       }
-    });
+    }
+    return out;
+  }
 
-    const results = await Promise.all(videoPromises);
-    this.videos = results.filter(v => v !== null);
+  async fetchBatchMetadata(ids) {
+    if (ids.length === 0) return {};
+
+    let metadataMap = {};
+    try {
+      const url = `api/metadata-batch.php?ids=${encodeURIComponent(ids.join(','))}`;
+      const response = await fetch(url, { credentials: 'same-origin' });
+      if (response.ok) {
+        const payload = await response.json();
+        metadataMap = payload?.data || {};
+      }
+    } catch (e) {
+      console.warn('Batch metadata fetch failed, falling back to direct archive.org:', e);
+    }
+
+    // Direct archive.org fallback for any IDs the batch endpoint didn't return
+    const stillMissing = ids.filter(id => !metadataMap[id]);
+    if (stillMissing.length > 0) {
+      const fallbacks = await Promise.all(stillMissing.map(async (id) => {
+        try {
+          const response = await fetch(`https://archive.org/metadata/${id}`);
+          if (!response.ok) return [id, null];
+          const data = await response.json();
+          return [id, data?.metadata ? { ...data.metadata, identifier: id } : null];
+        } catch {
+          return [id, null];
+        }
+      }));
+      for (const [id, meta] of fallbacks) {
+        if (meta) metadataMap[id] = meta;
+      }
+    }
+
+    return metadataMap;
   }
 
   render() {
@@ -148,6 +229,8 @@ export class RecommendedManager {
           <img src="${thumbUrl}"
                alt="${escapeHtml(title)}"
                loading="eager"
+               decoding="async"
+               fetchpriority="high"
                onerror="this.style.display='none'; this.parentNode.innerHTML='<div class=thumb-placeholder>🎬</div>'"/>
           ${runtime ? `<span class="runtime-badge">${runtime}</span>` : ''}
           <div class="recommended-card-overlay">

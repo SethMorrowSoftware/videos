@@ -1,10 +1,19 @@
 /**
  * Service Worker for Comet Cult Film Club
- * Version: 1.0.0
+ * Version: 1.1.0
  * Features: Offline support, intelligent caching, background sync
+ *
+ * v1.1 changes:
+ *   - Bumped CACHE_VERSION so old caches get evicted (with the old, broken
+ *     image cache that didn't store archive.org redirects)
+ *   - Cache image limit raised — thumbnails are immutable, no reason to evict
+ *     them aggressively
+ *   - Image cache now follows redirects (so archive.org thumbnail URLs that
+ *     302 to a CDN get cached at their final resolved URL)
+ *   - metadata-batch.php gets cache-first treatment like metadata.php
  */
 
-const CACHE_VERSION = 'ccfc-v1';
+const CACHE_VERSION = 'ccfc-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -27,7 +36,10 @@ const STATIC_ASSETS = [
 const CACHE_LIMITS = {
   static: 50,
   dynamic: 100,
-  images: 200
+  // Thumbnails are immutable + small (~30KB each). Keeping ~2000 in-cache
+  // is roughly 60MB, well within typical SW quota — and means a returning
+  // user almost never sees a thumbnail load spinner.
+  images: 2000
 };
 
 // Cache expiration times (in milliseconds)
@@ -117,10 +129,11 @@ async function handleApiRequest(request) {
 
   // Determine cache strategy based on endpoint filename
   const cacheStrategies = {
-    'search.php': { ttl: 5 * 60 * 1000, strategy: 'network-first' },      // 5 min
-    'metadata.php': { ttl: 60 * 60 * 1000, strategy: 'cache-first' },     // 1 hour
-    'thumbnail.php': { ttl: 7 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 7 days
-    'settings.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 1 hour
+    'search.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 5 min, instant repeat searches
+    'metadata.php': { ttl: 24 * 60 * 60 * 1000, strategy: 'cache-first' },    // 1 day, metadata rarely changes
+    'metadata-batch.php': { ttl: 24 * 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    'thumbnail.php': { ttl: 365 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 1 year, immutable
+    'settings.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },  // 1 hour
     'recommendations.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
     'sections.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
   };
@@ -329,35 +342,40 @@ async function handleArchiveRequest(request) {
 
 /**
  * Handle image requests with aggressive caching
+ *
+ * Thumbnails are immutable — once we have one for a given URL, the upstream
+ * never changes. Cache forever (subject to LRU trim) and never revalidate.
  */
 async function handleImageRequest(request) {
   try {
-    // Check cache first
+    // Check cache first - if hit, return instantly without touching the network
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
       return cachedResponse;
     }
 
-    // Network request
-    const networkResponse = await fetchWithTimeout(request, 5000);
-    
-    // Cache successful image responses
-    if (networkResponse.ok) {
+    // Network request. Follow redirects so archive.org URLs that 302 to a CDN
+    // get cached at the archive.org URL the page actually requested.
+    const networkResponse = await fetchWithTimeout(request, 8000);
+
+    // Cache successful image responses (and 304s, which the browser will hydrate)
+    if (networkResponse.ok || networkResponse.status === 304) {
       const cache = await caches.open(IMAGE_CACHE);
-      cache.put(request, networkResponse.clone());
-      
-      // Trim cache if needed
+      // .clone() because the response body is a stream that can only be read once
+      cache.put(request, networkResponse.clone()).catch(() => {});
+
+      // Trim cache asynchronously; don't block the response
       trimCache(IMAGE_CACHE, CACHE_LIMITS.images);
     }
-    
+
     return networkResponse;
   } catch (error) {
     console.error('[SW] Image request failed:', error);
-    
+
     // Return placeholder image if available
     const placeholderImage = await caches.match('./images/placeholder.png');
     if (placeholderImage) return placeholderImage;
-    
+
     // Return a 1x1 transparent PNG as ultimate fallback
     return new Response(
       atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='),

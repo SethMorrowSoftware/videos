@@ -21,6 +21,11 @@ function redirectToArchive($id) {
     }
 
     if (!headers_sent()) {
+        // 1-hour browser cache for the redirect itself so we don't re-do
+        // this DB lookup + miss flow on every page view. Once the upstream
+        // image is cached locally, future requests will see the cached
+        // version (cached for a year, see serveFile()) instead.
+        header('Cache-Control: public, max-age=3600');
         header("Location: https://archive.org/services/img/{$id}", true, 302);
     }
     exit;
@@ -260,6 +265,11 @@ function downloadAndCacheThumbnail($archiveId, $db, $config) {
 
 /**
  * Serve a file with proper caching headers
+ *
+ * Once we have a thumbnail cached for an Archive.org item, the image content
+ * never changes (the upstream URL is keyed by the immutable archive id).
+ * That makes the cache 'immutable' — browsers and intermediaries can keep
+ * it for the full max-age without ever revalidating.
  */
 function serveFile($path) {
     // Clean output buffer before serving
@@ -274,14 +284,19 @@ function serveFile($path) {
 
     // Check for If-None-Match header (browser cache)
     if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && trim($_SERVER['HTTP_IF_NONE_MATCH'], '"') === $etag) {
-        header('HTTP/1.1 304 Not Modified');
+        // Send the same caching headers on the 304 so intermediaries
+        // refresh their TTLs.
+        header('Cache-Control: public, max-age=31536000, immutable');
+        header('ETag: "' . $etag . '"');
+        http_response_code(304);
         exit;
     }
 
     // Send headers and file
     header('Content-Type: ' . $mime);
     header('Content-Length: ' . $size);
-    header('Cache-Control: public, max-age=604800'); // 7 days
+    // 1 year + immutable. Thumbnails for archive.org items don't change.
+    header('Cache-Control: public, max-age=31536000, immutable');
     header('ETag: "' . $etag . '"');
     header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
     header('X-Cache: HIT');

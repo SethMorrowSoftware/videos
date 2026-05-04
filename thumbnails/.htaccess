@@ -2,8 +2,8 @@
 # Serve images with long cache headers
 
 <IfModule mod_headers.c>
-    # Cache images for 7 days
-    Header set Cache-Control "public, max-age=604800, immutable"
+    # Thumbnails keyed by archive.org id never change once cached -> 1 year + immutable
+    Header set Cache-Control "public, max-age=31536000, immutable"
 
     # Add ETag support
     FileETag MTime Size
@@ -11,10 +11,10 @@
 
 <IfModule mod_expires.c>
     ExpiresActive On
-    ExpiresByType image/jpeg "access plus 7 days"
-    ExpiresByType image/png "access plus 7 days"
-    ExpiresByType image/gif "access plus 7 days"
-    ExpiresByType image/webp "access plus 7 days"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
 </IfModule>
 
 # Disable directory listing
