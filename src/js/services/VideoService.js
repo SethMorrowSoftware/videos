@@ -296,22 +296,53 @@ export class VideoService {
     const oldControls = videoWrapper.querySelector('.video-controls');
     if (oldControls) oldControls.remove();
 
-    // Build the element imperatively so we never inject the URL into HTML
-    // (URLs come from Archive.org metadata which we don't trust to be
-    // attribute-safe even after encodeURIComponent).
-    const videoEl = document.createElement('video');
-    videoEl.className = 'video-element';
-    videoEl.id = 'mainVideo';
-    videoEl.controls = true;
-    videoEl.preload = 'metadata';
-    videoEl.autoplay = true;
-    videoEl.playsInline = true;
+    // Reuse an existing <video> when one already lives in the wrapper.
+    // Creating a new element on every call (quality switch, track change)
+    // would leak elements into the DOM, leave background fetches running
+    // for the abandoned ones, and drop active fullscreen / volume state.
+    let videoEl = videoWrapper.querySelector('video.video-element');
+    const isNewElement = !videoEl;
+
+    if (isNewElement) {
+      // Build the element imperatively so we never inject the URL into HTML
+      // (URLs come from Archive.org metadata which we don't trust to be
+      // attribute-safe even after encodeURIComponent).
+      videoEl = document.createElement('video');
+      videoEl.className = 'video-element';
+      videoEl.id = 'mainVideo';
+      videoEl.controls = true;
+      // `auto` lets the browser buffer enough to make seeking responsive
+      // — `metadata` only fetched the moov atom, which forced a fresh
+      // range request on every scrub and made the slider feel laggy.
+      videoEl.preload = 'auto';
+      videoEl.autoplay = true;
+      videoEl.playsInline = true;
+      videoWrapper.appendChild(videoEl);
+    }
+
+    // Swap the source. We rebuild the <source> child (rather than just
+    // setting videoEl.src) because `.load()` only re-evaluates child
+    // <source> elements when there is no `src` attribute on the video
+    // itself.
+    const wasMuted = videoEl.muted;
+    videoEl.removeAttribute('src');
+    videoEl.innerHTML = '';
     const sourceEl = document.createElement('source');
     sourceEl.src = url;
     if (mime) sourceEl.type = mime;
     videoEl.appendChild(sourceEl);
     videoEl.appendChild(document.createTextNode('Your browser does not support the video tag.'));
-    videoWrapper.appendChild(videoEl);
+
+    if (!isNewElement) {
+      try { videoEl.load(); } catch (e) { /* ignore */ }
+      // The `autoplay` attribute only fires on fresh elements, so kick
+      // playback explicitly when reusing. Swallow the rejection that
+      // browsers throw when autoplay policies block the call — the user
+      // can still hit play.
+      const p = videoEl.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+      videoEl.muted = wasMuted;
+    }
 
     this.videoControls = { video: videoEl };
 
