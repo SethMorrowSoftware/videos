@@ -67,66 +67,75 @@ $ogType = 'website';
 $pageTitle = $site_settings['siteName'];
 $useVideoThumbnail = false;
 
-// Only try to fetch video thumbnail if we have a specific video parameter
-// (not for homepage, search results, or collection browsing)
+// Only try to fetch video thumbnail if we have a specific video parameter.
+// Prefer the local cache (instant) over a blocking fetch from archive.org.
 if (isset($_GET['video']) && !empty($_GET['video'])) {
-    // Sanitize the video ID
     $videoId = preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['video']);
 
     if (!empty($videoId)) {
-        // Fetch metadata from Archive.org
-        $metadataUrl = "https://archive.org/metadata/{$videoId}";
+        $metadata = null;
 
-        // Configure request with timeout
-        $context = stream_context_create([
-            'http' => [
-                'timeout' => 5,
-                'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
-                'ignore_errors' => true
-            ]
-        ]);
-
-        // Attempt to fetch metadata
-        $response = @file_get_contents($metadataUrl, false, $context);
-
-        if ($response !== false) {
-            $data = json_decode($response, true);
-
-            if ($data && isset($data['metadata'])) {
-                $metadata = $data['metadata'];
-
-                // Extract title
-                if (isset($metadata['title'])) {
-                    $title = is_array($metadata['title']) ? $metadata['title'][0] : $metadata['title'];
-                    $ogTitle = $title;
-                    $pageTitle = $title . " - " . $site_settings['siteName'];
+        // 1. Try the local metadata cache first (instant)
+        if (class_exists('CacheManager')) {
+            try {
+                $cm = new CacheManager();
+                $cached = $cm->getMetadataCache($videoId);
+                if ($cached) {
+                    $metadata = [
+                        'title' => $cached['title'] ?? null,
+                        'description' => $cached['description'] ?? null,
+                        'creator' => $cached['creator'] ?? null,
+                    ];
                 }
-
-                // Extract description
-                if (isset($metadata['description'])) {
-                    $desc = is_array($metadata['description']) ? $metadata['description'][0] : $metadata['description'];
-                    // Strip HTML tags and limit length
-                    $desc = strip_tags($desc);
-                    $ogDescription = strlen($desc) > 200 ? substr($desc, 0, 197) . '...' : $desc;
-                }
-
-                // Extract creator for richer description
-                if (isset($metadata['creator'])) {
-                    $creator = is_array($metadata['creator']) ? $metadata['creator'][0] : $metadata['creator'];
-                    if (!empty($creator)) {
-                        $ogDescription = "By " . $creator . " - " . $ogDescription;
-                    }
-                }
-
-                // Set thumbnail image
-                $ogImage = "https://archive.org/services/img/{$videoId}";
-
-                // Mark that we found a video and should use its thumbnail
-                $useVideoThumbnail = true;
-
-                // Set type to video
-                $ogType = 'video.other';
+            } catch (Throwable $e) {
+                // Cache table missing — fall through to direct fetch
             }
+        }
+
+        // 2. Cache miss — short blocking fetch with tight timeout
+        if ($metadata === null) {
+            $metadataUrl = "https://archive.org/metadata/{$videoId}";
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 2,
+                    'user_agent' => 'Mozilla/5.0 (compatible; ArchiveFilmClub/1.0)',
+                    'ignore_errors' => true
+                ]
+            ]);
+
+            $response = @file_get_contents($metadataUrl, false, $context);
+            if ($response !== false) {
+                $data = json_decode($response, true);
+                if ($data && isset($data['metadata'])) {
+                    $metadata = $data['metadata'];
+                }
+            }
+        }
+
+        if (is_array($metadata)) {
+            if (isset($metadata['title'])) {
+                $title = is_array($metadata['title']) ? $metadata['title'][0] : $metadata['title'];
+                $ogTitle = $title;
+                $pageTitle = $title . " - " . $site_settings['siteName'];
+            }
+
+            if (isset($metadata['description'])) {
+                $desc = is_array($metadata['description']) ? $metadata['description'][0] : $metadata['description'];
+                $desc = strip_tags($desc);
+                $ogDescription = strlen($desc) > 200 ? substr($desc, 0, 197) . '...' : $desc;
+            }
+
+            if (isset($metadata['creator'])) {
+                $creator = is_array($metadata['creator']) ? $metadata['creator'][0] : $metadata['creator'];
+                if (!empty($creator)) {
+                    $ogDescription = "By " . $creator . " - " . $ogDescription;
+                }
+            }
+
+            // OG image must be fully-qualified for social-media crawlers
+            $ogImage = "https://archive.org/services/img/{$videoId}";
+            $useVideoThumbnail = true;
+            $ogType = 'video.other';
         }
     }
 }
@@ -166,6 +175,126 @@ function darkenColor($hex, $percent = 20) {
 $brandColorDark = darkenColor($site_settings['brandColor']);
 $accentColorDark = darkenColor($site_settings['accentColor']);
 $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_settings['defaultTheme'];
+
+// =====================================================
+// Load recommendations + featured sections + cache prefetch UP HERE so the
+// <head> can emit <link rel="preload"> hints for the first thumbnails. The
+// browser then starts those image requests in parallel with HTML parsing
+// instead of waiting until app.js runs.
+// =====================================================
+
+$recommendations_config = ['enabled' => false, 'title' => 'Staff Picks', 'videos' => []];
+if ($useDatabase && isset($settingsService)) {
+    try {
+        $recommendations_config = $settingsService->getRecommendations();
+    } catch (Exception $e) {
+        error_log("Failed to load recommendations from database: " . $e->getMessage());
+    }
+}
+if (!$useDatabase || empty($recommendations_config['videos'])) {
+    $recommendations_file = __DIR__ . '/recommendations.json';
+    if (file_exists($recommendations_file)) {
+        $content = file_get_contents($recommendations_file);
+        if ($content) {
+            $jsonData = json_decode($content, true);
+            if ($jsonData) {
+                $recommendations_config = $jsonData;
+            }
+        }
+    }
+}
+
+$featured_sections_config = ['sections' => []];
+if ($useDatabase && isset($settingsService)) {
+    try {
+        $featured_sections_config = $settingsService->getFeaturedSections();
+    } catch (Exception $e) {
+        error_log("Failed to load featured sections from database: " . $e->getMessage());
+    }
+}
+if (!$useDatabase || empty($featured_sections_config['sections'])) {
+    $featured_sections_file = __DIR__ . '/featured-sections.json';
+    if (file_exists($featured_sections_file)) {
+        $content = file_get_contents($featured_sections_file);
+        if ($content) {
+            $jsonData = json_decode($content, true);
+            if ($jsonData) {
+                $featured_sections_config = $jsonData;
+            }
+        }
+    }
+}
+
+// Pull cached metadata only — never fetch from archive.org during page
+// render. Anything not cached gets filled in by the JS after the page loads
+// (which also caches it for next time).
+$recommendedPrefetch = new stdClass();
+$featuredPrefetch = new stdClass();
+
+if (class_exists('CacheManager')) {
+    try {
+        $cacheManager = new CacheManager();
+
+        $recommendedIds = [];
+        if (!empty($recommendations_config['videos']) && is_array($recommendations_config['videos'])) {
+            foreach ($recommendations_config['videos'] as $v) {
+                if (!empty($v['id']) && is_string($v['id'])) {
+                    $recommendedIds[] = $v['id'];
+                }
+            }
+        }
+
+        $featuredIds = [];
+        if (!empty($featured_sections_config['sections']) && is_array($featured_sections_config['sections'])) {
+            foreach ($featured_sections_config['sections'] as $section) {
+                if (empty($section['videos']) || !is_array($section['videos'])) continue;
+                foreach ($section['videos'] as $v) {
+                    if (!empty($v['id']) && is_string($v['id'])) {
+                        $featuredIds[] = $v['id'];
+                    }
+                }
+            }
+        }
+
+        $loadFromCache = function(array $ids) use ($cacheManager) {
+            $out = new stdClass();
+            foreach (array_unique($ids) as $id) {
+                $cached = null;
+                try {
+                    $cached = $cacheManager->getMetadataCache($id);
+                } catch (Throwable $e) {
+                    // Cache table missing — skip
+                }
+                if ($cached !== null) {
+                    unset($cached['raw_metadata'], $cached['_is_stale']);
+                    $out->{$id} = $cached;
+                }
+            }
+            return $out;
+        };
+
+        if (!empty($recommendedIds)) {
+            $recommendedPrefetch = $loadFromCache($recommendedIds);
+        }
+        if (!empty($featuredIds)) {
+            $featuredPrefetch = $loadFromCache($featuredIds);
+        }
+    } catch (Throwable $e) {
+        error_log("Metadata prefetch failed: " . $e->getMessage());
+    }
+}
+
+// IDs of thumbnails that are above the fold — preload these in <head>.
+// Includes staff picks (always rendered first) plus first row of the first
+// featured section.
+$aboveFoldThumbIds = [];
+if (!empty($recommendations_config['enabled']) && !empty($recommendations_config['videos'])) {
+    foreach (array_slice($recommendations_config['videos'], 0, 6) as $v) {
+        if (!empty($v['id']) && is_string($v['id'])) {
+            $aboveFoldThumbIds[] = $v['id'];
+        }
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en" data-theme="<?= escapeAttr($initialTheme) ?>">
@@ -196,6 +325,23 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://archive.org">
+  <link rel="dns-prefetch" href="https://archive.org">
+
+  <!-- Preload critical resources so the browser can fetch them in parallel
+       with the HTML parse instead of waiting for the parser to discover them -->
+  <link rel="preload" href="styles.css" as="style">
+  <link rel="preload" href="app.js" as="script" crossorigin>
+
+  <?php
+  // Preload above-the-fold thumbnails. The browser starts these requests
+  // immediately on receiving the head, in parallel with HTML parsing and
+  // JS execution, so they're already loaded by the time the JS renders the
+  // staff picks cards.
+  foreach ($aboveFoldThumbIds as $thumbId):
+      $thumbUrl = 'api/thumbnail.php?id=' . urlencode($thumbId);
+  ?>
+  <link rel="preload" as="image" href="<?= escapeAttr($thumbUrl) ?>" fetchpriority="high">
+  <?php endforeach; ?>
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
 
@@ -417,63 +563,18 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <!-- Site Settings Configuration -->
   <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings) ?></script>
 
-  <!-- Admin Recommended Videos Configuration -->
-  <?php
-  $recommendations_config = ['enabled' => false, 'title' => 'Staff Picks', 'videos' => []];
-
-  // Try database first
-  if ($useDatabase && isset($settingsService)) {
-      try {
-          $recommendations_config = $settingsService->getRecommendations();
-      } catch (Exception $e) {
-          error_log("Failed to load recommendations from database: " . $e->getMessage());
-      }
-  }
-
-  // Fallback to JSON file
-  if (!$useDatabase || empty($recommendations_config['videos'])) {
-      $recommendations_file = __DIR__ . '/recommendations.json';
-      if (file_exists($recommendations_file)) {
-          $content = file_get_contents($recommendations_file);
-          if ($content) {
-              $jsonData = json_decode($content, true);
-              if ($jsonData) {
-                  $recommendations_config = $jsonData;
-              }
-          }
-      }
-  }
-  ?>
+  <!-- Admin Recommended Videos Configuration (loaded at top of file) -->
   <script id="recommendedConfig" type="application/json"><?= json_encode($recommendations_config) ?></script>
 
-  <!-- Featured Sections Configuration -->
-  <?php
-  $featured_sections_config = ['sections' => []];
-
-  // Try database first
-  if ($useDatabase && isset($settingsService)) {
-      try {
-          $featured_sections_config = $settingsService->getFeaturedSections();
-      } catch (Exception $e) {
-          error_log("Failed to load featured sections from database: " . $e->getMessage());
-      }
-  }
-
-  // Fallback to JSON file
-  if (!$useDatabase || empty($featured_sections_config['sections'])) {
-      $featured_sections_file = __DIR__ . '/featured-sections.json';
-      if (file_exists($featured_sections_file)) {
-          $content = file_get_contents($featured_sections_file);
-          if ($content) {
-              $jsonData = json_decode($content, true);
-              if ($jsonData) {
-                  $featured_sections_config = $jsonData;
-              }
-          }
-      }
-  }
-  ?>
+  <!-- Featured Sections Configuration (loaded at top of file) -->
   <script id="featuredSectionsConfig" type="application/json"><?= json_encode($featured_sections_config) ?></script>
+
+  <!-- Server-side metadata prefetch (loaded at top of file).
+       For staff picks and featured sections, the server hits the local cache
+       directly so the JS doesn't need to wait on a network round-trip to
+       render cards on repeat visits. -->
+  <script id="recommendedMetadataPrefetch" type="application/json"><?= json_encode($recommendedPrefetch, JSON_UNESCAPED_SLASHES) ?></script>
+  <script id="featuredMetadataPrefetch" type="application/json"><?= json_encode($featuredPrefetch, JSON_UNESCAPED_SLASHES) ?></script>
 
   <!-- Theme Toggle Script -->
   <script>

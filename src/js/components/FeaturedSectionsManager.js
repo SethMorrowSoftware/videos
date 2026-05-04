@@ -31,58 +31,125 @@ export class FeaturedSectionsManager {
       return;
     }
 
-    // Filter enabled sections
-    const enabledSections = this.config.sections.filter(s => s.enabled !== false);
+    const enabledSections = this.config.sections
+      .filter(s => s.enabled !== false && s.videos && s.videos.length > 0);
+
     if (enabledSections.length === 0) {
       return;
     }
 
-    // Load videos for all sections in parallel
-    const loadPromises = enabledSections
-      .filter(section => section.videos && section.videos.length > 0)
-      .map(async (section) => {
-        const videos = await this.loadVideosForSection(section);
-        if (videos.length > 0) {
-          return { ...section, loadedVideos: videos };
-        }
-        return null;
-      });
+    // Collect all unique IDs across sections so we only fetch each once,
+    // even when shared between sections.
+    const allIds = new Set();
+    for (const section of enabledSections) {
+      for (const v of section.videos) {
+        if (v.id) allIds.add(v.id);
+      }
+    }
+    const idList = [...allIds];
 
-    const results = await Promise.all(loadPromises);
-    this.sections = results.filter(s => s !== null);
+    // Use whatever the server prefetched (may be empty/partial)
+    const prefetched = this.loadPrefetchedMetadata() || {};
+    const missing = idList.filter(id => !prefetched[id]);
+
+    // Render immediately with prefetched data + stubs for missing items.
+    this.sections = enabledSections
+      .map(section => ({
+        ...section,
+        loadedVideos: this.buildVideosFromMap(section.videos, prefetched),
+      }))
+      .filter(s => s.loadedVideos.length > 0);
+    this.render();
+
+    // Background-fetch missing items and re-render only if there are any
+    if (missing.length > 0) {
+      this.fetchMissingAndUpdate(enabledSections, missing, prefetched);
+    }
+  }
+
+  async fetchMissingAndUpdate(enabledSections, missingIds, currentMap) {
+    const fetched = await this.fetchBatchMetadata(missingIds);
+
+    // No new data — skip the re-render to avoid thumbnail flicker
+    if (!fetched || Object.keys(fetched).length === 0) {
+      return;
+    }
+
+    const merged = { ...currentMap, ...fetched };
+
+    this.sections = enabledSections
+      .map(section => ({
+        ...section,
+        loadedVideos: this.buildVideosFromMap(section.videos, merged),
+      }))
+      .filter(s => s.loadedVideos.length > 0);
 
     this.render();
   }
 
-  async loadVideosForSection(section) {
-    const videoPromises = section.videos.map(async (item) => {
-      const fallbackVideo = {
-        identifier: item.id,
-        title: item.title || 'Untitled',
-        creator: item.creator || 'Unknown',
-        adminNote: item.note
-      };
+  loadPrefetchedMetadata() {
+    const el = document.getElementById('featuredMetadataPrefetch');
+    if (!el || !el.textContent.trim()) return null;
+    try {
+      const data = JSON.parse(el.textContent);
+      return data && typeof data === 'object' ? data : null;
+    } catch {
+      return null;
+    }
+  }
 
-      try {
-        const response = await fetch(`https://archive.org/metadata/${item.id}`);
-        if (!response.ok) return fallbackVideo;
-
-        const data = await response.json();
-        if (!data.metadata) return fallbackVideo;
-
-        return {
-          ...data.metadata,
+  buildVideosFromMap(items, metadataMap) {
+    const out = [];
+    for (const item of items) {
+      const meta = metadataMap[item.id];
+      if (meta) {
+        out.push({ ...meta, identifier: item.id, adminNote: item.note });
+      } else {
+        // Fallback to admin-supplied title/creator so the card still renders
+        out.push({
           identifier: item.id,
-          adminNote: item.note
-        };
-      } catch (e) {
-        console.warn(`Failed to load video: ${item.id}`, e);
-        return fallbackVideo;
+          title: item.title || item.id,
+          creator: item.creator || 'Unknown',
+          adminNote: item.note,
+        });
       }
-    });
+    }
+    return out;
+  }
 
-    const results = await Promise.all(videoPromises);
-    return results.filter(v => v && v.identifier);
+  async fetchBatchMetadata(ids) {
+    if (ids.length === 0) return {};
+
+    let metadataMap = {};
+    try {
+      const url = `api/metadata-batch.php?ids=${encodeURIComponent(ids.join(','))}`;
+      const response = await fetch(url, { credentials: 'same-origin' });
+      if (response.ok) {
+        const payload = await response.json();
+        metadataMap = payload?.data || {};
+      }
+    } catch (e) {
+      console.warn('Batch metadata fetch failed, falling back to direct archive.org:', e);
+    }
+
+    const missing = ids.filter(id => !metadataMap[id]);
+    if (missing.length > 0) {
+      const fallbacks = await Promise.all(missing.map(async (id) => {
+        try {
+          const response = await fetch(`https://archive.org/metadata/${id}`);
+          if (!response.ok) return [id, null];
+          const data = await response.json();
+          return [id, data?.metadata ? { ...data.metadata, identifier: id } : null];
+        } catch {
+          return [id, null];
+        }
+      }));
+      for (const [id, meta] of fallbacks) {
+        if (meta) metadataMap[id] = meta;
+      }
+    }
+
+    return metadataMap;
   }
 
   render() {
@@ -143,7 +210,8 @@ export class FeaturedSectionsManager {
         <div class="featured-card-thumb">
           <img src="${thumbUrl}"
                alt="${escapeHtml(title)}"
-               loading="eager"
+               loading="lazy"
+               decoding="async"
                onerror="this.style.display='none'; this.parentNode.innerHTML='<div class=thumb-placeholder>🎬</div>'"/>
           ${runtime ? `<span class="runtime-badge">${runtime}</span>` : ''}
           <div class="featured-card-overlay">
