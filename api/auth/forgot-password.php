@@ -13,6 +13,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 $api = new ApiController();
 $api->requireMethod('POST');
+$api->requireCsrf();
 
 $body = $api->jsonBody();
 $email = strtolower(trim((string)($body['email'] ?? '')));

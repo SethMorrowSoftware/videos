@@ -424,7 +424,13 @@
             try {
                 const response = await fetch('api/recommendations.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: (function() {
+                        const h = { 'Content-Type': 'application/json' };
+                        const m = document.querySelector('meta[name="csrf-token"]');
+                        if (m) h['X-CSRF-Token'] = m.getAttribute('content') || '';
+                        return h;
+                    })(),
                     body: JSON.stringify({
                         enabled: enabled,
                         title: title,
@@ -470,7 +476,13 @@
             try {
                 const response = await fetch('api/settings.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: (function() {
+                        const h = { 'Content-Type': 'application/json' };
+                        const m = document.querySelector('meta[name="csrf-token"]');
+                        if (m) h['X-CSRF-Token'] = m.getAttribute('content') || '';
+                        return h;
+                    })(),
                     body: JSON.stringify(settings)
                 });
 
@@ -988,7 +1000,13 @@
             try {
                 const response = await fetch('api/sections.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: (function() {
+                        const h = { 'Content-Type': 'application/json' };
+                        const m = document.querySelector('meta[name="csrf-token"]');
+                        if (m) h['X-CSRF-Token'] = m.getAttribute('content') || '';
+                        return h;
+                    })(),
                     body: JSON.stringify({ sections: featuredSections })
                 });
 

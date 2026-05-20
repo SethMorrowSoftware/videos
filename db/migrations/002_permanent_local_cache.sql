@@ -1,24 +1,42 @@
 -- Archive Film Club - Permanent Local Cache Migration
--- Version: 2.0.0
+-- Version: 2.0.1
 -- Purpose: Enable permanent local storage of metadata and thumbnails
 --          to minimize Archive.org API usage
+--
+-- Compatibility note (2.0.1): "ADD COLUMN IF NOT EXISTS" and
+-- "CREATE INDEX IF NOT EXISTS" are MariaDB-only -- MySQL 5.7 and 8.x
+-- both reject them with a 1064 syntax error. install.php's outer loop
+-- catches "Duplicate column" / "Duplicate key name" errors so the bare
+-- ALTERs below are safe to re-run on either engine.
 
 -- =====================================================
 -- EXTEND METADATA CACHE FOR PERMANENT STORAGE
 -- =====================================================
 
--- Add columns for permanent storage and raw data
+-- One column per ALTER so a duplicate-column error on one doesn't abort
+-- the rest. install.php swallows the duplicate-column errors as it walks
+-- each statement (see the catch block around `$db->query($statement)`).
+
 ALTER TABLE video_metadata_cache
-    ADD COLUMN IF NOT EXISTS is_permanent TINYINT(1) DEFAULT 1 COMMENT 'Keep this data permanently',
-    ADD COLUMN IF NOT EXISTS is_stale TINYINT(1) DEFAULT 0 COMMENT 'Mark for background refresh',
-    ADD COLUMN IF NOT EXISTS raw_metadata_json LONGTEXT COMMENT 'Full Archive.org metadata response',
-    ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMP NULL COMMENT 'When data was last refreshed from API',
-    ADD COLUMN IF NOT EXISTS refresh_count INT DEFAULT 0 COMMENT 'Number of times refreshed',
-    ADD COLUMN IF NOT EXISTS collection_json TEXT COMMENT 'Collections this item belongs to',
-    ADD COLUMN IF NOT EXISTS thumbnail_cached TINYINT(1) DEFAULT 0 COMMENT 'Whether thumbnail is cached locally';
+    ADD COLUMN is_permanent TINYINT(1) DEFAULT 1 COMMENT 'Keep this data permanently';
+ALTER TABLE video_metadata_cache
+    ADD COLUMN is_stale TINYINT(1) DEFAULT 0 COMMENT 'Mark for background refresh';
+ALTER TABLE video_metadata_cache
+    ADD COLUMN raw_metadata_json LONGTEXT COMMENT 'Full Archive.org metadata response';
+ALTER TABLE video_metadata_cache
+    ADD COLUMN last_refreshed TIMESTAMP NULL COMMENT 'When data was last refreshed from API';
+ALTER TABLE video_metadata_cache
+    ADD COLUMN refresh_count INT DEFAULT 0 COMMENT 'Number of times refreshed';
+ALTER TABLE video_metadata_cache
+    ADD COLUMN collection_json TEXT COMMENT 'Collections this item belongs to';
+ALTER TABLE video_metadata_cache
+    ADD COLUMN thumbnail_cached TINYINT(1) DEFAULT 0 COMMENT 'Whether thumbnail is cached locally';
+-- Note: this column was already declared in migration 001. On an install
+-- that ran 001 first, the ALTER above will throw "Duplicate column" and
+-- install.php's outer loop swallows that specific error.
 
 -- Add index for stale items (for background refresh)
-CREATE INDEX IF NOT EXISTS idx_stale ON video_metadata_cache (is_stale, last_refreshed);
+CREATE INDEX idx_stale ON video_metadata_cache (is_stale, last_refreshed);
 
 -- Make expires_at nullable (for permanent storage)
 ALTER TABLE video_metadata_cache MODIFY COLUMN expires_at TIMESTAMP NULL;
@@ -69,11 +87,14 @@ CREATE TABLE IF NOT EXISTS cache_queue (
 -- SEARCH RESULTS CACHE IMPROVEMENTS
 -- =====================================================
 
--- Add columns for permanent search caching
+-- Add columns for permanent search caching (one statement each so a
+-- duplicate-column error on one doesn't abort the whole migration).
 ALTER TABLE search_cache
-    ADD COLUMN IF NOT EXISTS is_permanent TINYINT(1) DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS is_stale TINYINT(1) DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMP NULL;
+    ADD COLUMN is_permanent TINYINT(1) DEFAULT 0;
+ALTER TABLE search_cache
+    ADD COLUMN is_stale TINYINT(1) DEFAULT 0;
+ALTER TABLE search_cache
+    ADD COLUMN last_refreshed TIMESTAMP NULL;
 
 -- Extend search cache TTL (make expires_at nullable)
 ALTER TABLE search_cache MODIFY COLUMN expires_at TIMESTAMP NULL;

@@ -26,7 +26,10 @@ function redirectToArchive($id) {
         // image is cached locally, future requests will see the cached
         // version (cached for a year, see serveFile()) instead.
         header('Cache-Control: public, max-age=3600');
-        header("Location: https://archive.org/services/img/{$id}", true, 302);
+        // urlencode() defensively: $id has already been narrowed to
+        // [a-zA-Z0-9_-] by the caller, but if that ever loosens we still
+        // can't break out of the URL.
+        header("Location: https://archive.org/services/img/" . rawurlencode($id), true, 302);
     }
     exit;
 }

@@ -15,19 +15,20 @@
             </div>
             <?php endif; ?>
             <form method="POST">
+                <input type="hidden" name="_csrf" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES) ?>">
                 <?php if ($useDatabase): ?>
                 <div class="form-group">
-                    <label class="form-label">Username</label>
-                    <input type="text" name="username" class="form-input" placeholder="Enter username" required autofocus autocomplete="username">
+                    <label class="form-label" for="adminUsername">Username</label>
+                    <input id="adminUsername" type="text" name="username" class="form-input" placeholder="Enter username" required autofocus autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Password</label>
-                    <input type="password" name="password" class="form-input" placeholder="Enter password" required autocomplete="current-password">
+                    <label class="form-label" for="adminPassword">Password</label>
+                    <input id="adminPassword" type="password" name="password" class="form-input" placeholder="Enter password" required autocomplete="current-password">
                 </div>
                 <?php else: ?>
                 <div class="form-group">
-                    <label class="form-label">Password</label>
-                    <input type="password" name="password" class="form-input" placeholder="Enter admin password" required autofocus>
+                    <label class="form-label" for="adminPassword">Password</label>
+                    <input id="adminPassword" type="password" name="password" class="form-input" placeholder="Enter admin password" required autofocus autocomplete="current-password">
                 </div>
                 <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 16px; text-align: center;">
                     <a href="install.php" style="color: var(--accent);">Run installer</a> to set up MySQL authentication

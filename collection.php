@@ -84,6 +84,7 @@ $ogDescription = $collection && $collection['description']
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title><?= esc($pageTitle) ?></title>
   <meta name="description" content="<?= esc($ogDescription) ?>">
 
@@ -126,10 +127,22 @@ $ogDescription = $collection && $collection['description']
       <p><a href="collections.php">Back to your collections</a></p>
     <?php else: ?>
 
+      <?php
+        // CSS-injection-safe URL helper. htmlspecialchars(ENT_QUOTES) is
+        // decoded by the HTML parser BEFORE the CSS parser sees the value,
+        // so a `'` inside the URL would break out of a single-quoted CSS
+        // url('...'). We additionally restrict to URLs whose chars can
+        // safely sit inside url("...") with no further escaping.
+        $coverThumb = '';
+        if (!empty($collection['cover_thumbnail'])
+            && is_string($collection['cover_thumbnail'])
+            && preg_match('#^https?://[^\s"\'\\\\<>)]+$#i', $collection['cover_thumbnail'])) {
+            $coverThumb = $collection['cover_thumbnail'];
+        }
+      ?>
       <header class="collection-page-header">
-        <?php if ($collection['cover_thumbnail']): ?>
-          <div class="collection-page-cover"
-               style="background-image:url('<?= esc($collection['cover_thumbnail']) ?>')"></div>
+        <?php if ($coverThumb): ?>
+          <div class="collection-page-cover" data-cover="<?= esc($coverThumb) ?>"></div>
         <?php else: ?>
           <div class="collection-page-cover"></div>
         <?php endif; ?>
@@ -176,13 +189,19 @@ $ogDescription = $collection && $collection['description']
         <div class="collection-grid">
           <?php foreach ($items as $item): ?>
             <?php
-              $thumbnail = $item['thumbnail'] ?: 'https://archive.org/services/img/' . $item['id'];
+              // Validate stored thumbnail URL; otherwise fall back to the
+              // archive.org default. See CSS-injection note above.
+              $rawThumb = $item['thumbnail'] ?? '';
+              if (is_string($rawThumb) && preg_match('#^https?://[^\s"\'\\\\<>)]+$#i', $rawThumb)) {
+                $thumbnail = $rawThumb;
+              } else {
+                $thumbnail = 'https://archive.org/services/img/' . urlencode($item['id']);
+              }
               $playerUrl = 'player.php?video=' . urlencode($item['id']);
             ?>
             <div class="collection-card" style="cursor:default;">
               <a href="<?= esc($playerUrl) ?>" style="display:contents;">
-                <div class="collection-card-cover"
-                     style="background-image:url('<?= esc($thumbnail) ?>')"></div>
+                <div class="collection-card-cover" data-cover="<?= esc($thumbnail) ?>"></div>
                 <div class="collection-card-body">
                   <h3 class="collection-card-name"><?= esc($item['title'] ?: $item['id']) ?></h3>
                   <div class="collection-card-meta">
@@ -206,6 +225,22 @@ $ogDescription = $collection && $collection['description']
     <?php endif; ?>
   </main>
 
+  <script>
+    // Materialize data-cover attributes into background-image styles.
+    // Done in JS instead of inline CSS to dodge CSS-injection via URLs
+    // containing quotes (htmlspecialchars decodes inside an HTML attribute
+    // BEFORE the CSS parser runs).
+    (function(){
+      var nodes = document.querySelectorAll('[data-cover]');
+      for (var i = 0; i < nodes.length; i++) {
+        var url = nodes[i].getAttribute('data-cover');
+        if (!url) continue;
+        // setProperty with a JS string can't escape the CSS context.
+        nodes[i].style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+      }
+    })();
+  </script>
+
   <?php if ($collection): ?>
   <script type="module">
     import { CollectionService } from './src/js/services/CollectionService.js';
@@ -219,8 +254,8 @@ $ogDescription = $collection && $collection['description']
       $installBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
     ?>
     const SHARE_URL = <?= json_encode($collection['is_public']
-        ? $installBase . '/collection.php?u=' . $owner['username'] . '&s=' . $collection['slug']
-        : null) ?>;
+        ? $installBase . '/collection.php?u=' . urlencode($owner['username']) . '&s=' . urlencode($collection['slug'])
+        : null, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     // ---- Modal helpers (replacement for alert/confirm/prompt) ----
     function buildModal(html) {
@@ -353,7 +388,7 @@ $ogDescription = $collection && $collection['description']
 
       // Edit (name + public toggle)
       document.querySelector('[data-edit-btn]')?.addEventListener('click', async () => {
-        const currentName = <?= json_encode($collection['name']) ?>;
+        const currentName = <?= json_encode($collection['name'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
         const result = await showEditCollection({ name: currentName, isPublic: IS_PUBLIC });
         if (!result) return;
         try {

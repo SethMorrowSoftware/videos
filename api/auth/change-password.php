@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 $api = new ApiController();
 $api->requireMethod('POST');
+$api->requireCsrf();
 $user = $api->requireAuth();
 
 $body = $api->jsonBody();

@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 $api = new ApiController();
 $api->requireMethod('POST');
+$api->requireCsrf();
 
 $body = $api->jsonBody();
 $auth = new UserAuthService();
@@ -43,6 +44,9 @@ if ($mergeGuest && $pendingGuestId && $pendingGuestId !== (int)$user['id']) {
 session_regenerate_id(true);
 $_SESSION['user_id'] = (int)$user['id'];
 $_SESSION['user_role'] = $user['role'];
+// Rotate CSRF token on auth state change so a pre-registration token
+// can't be replayed.
+$_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 
 // Fire-and-forget verification email. MailService falls back to PHP mail()
 // when SMTP isn't configured, so we always attempt to send.

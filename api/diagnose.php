@@ -11,36 +11,29 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
-// Access control:
-//   1. After the site has been installed (`.installed` file exists), this
-//      page is strictly admin-only. It returns HTML rather than JSON, so we
-//      hand-roll the gate instead of using ApiController::requireAdmin().
-//   2. Before install (.installed missing), we allow access as a
-//      troubleshooting escape hatch -- the page is useful precisely for
-//      diagnosing install failures, and at that point there are no
-//      credentials to protect anyway.
-$lockFile = dirname(__DIR__) . '/.installed';
-$postInstall = file_exists($lockFile);
-
-if ($postInstall) {
-    $currentUser = null;
-    if (class_exists('UserAuthService')) {
-        $currentUser = (new UserAuthService())->currentUser();
-    }
-    if (!$currentUser && class_exists('AdminAuthService')) {
-        $currentUser = (new AdminAuthService())->validateSession();
-    }
-    $role = $currentUser['role'] ?? null;
-    if ($role !== 'admin' && $role !== 'editor') {
-        http_response_code(403);
-        header('Content-Type: text/html; charset=utf-8');
-        echo '<!DOCTYPE html><html><head><title>Forbidden</title></head><body style="font-family:sans-serif;max-width:600px;margin:60px auto;padding:20px">';
-        echo '<h1>403 Forbidden</h1>';
-        echo '<p>The server diagnostic page is restricted to administrators.</p>';
-        echo '<p><a href="../admin.php">Admin login</a></p>';
-        echo '</body></html>';
-        exit;
-    }
+// Access control: ALWAYS admin-only. Previous versions of this file
+// allowed access pre-install as a troubleshooting escape hatch, but on a
+// fresh upload that meant anyone on the internet could enumerate the
+// install path, DB name, and loaded extensions for a window between
+// upload and lock-down. The .htaccess at the root also denies this file
+// by default; this in-script gate is belt-and-suspenders.
+$currentUser = null;
+if (class_exists('UserAuthService')) {
+    try { $currentUser = (new UserAuthService())->currentUser(); } catch (Throwable $e) {}
+}
+if (!$currentUser && class_exists('AdminAuthService')) {
+    try { $currentUser = (new AdminAuthService())->validateSession(); } catch (Throwable $e) {}
+}
+$role = $currentUser['role'] ?? null;
+if ($role !== 'admin' && $role !== 'editor') {
+    http_response_code(403);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html><head><title>Forbidden</title><meta name="robots" content="noindex,nofollow"></head><body style="font-family:sans-serif;max-width:600px;margin:60px auto;padding:20px">';
+    echo '<h1>403 Forbidden</h1>';
+    echo '<p>The server diagnostic page is restricted to administrators.</p>';
+    echo '<p><a href="../admin.php">Admin login</a></p>';
+    echo '</body></html>';
+    exit;
 }
 
 header('Content-Type: text/html; charset=utf-8');
@@ -101,11 +94,11 @@ header('Content-Type: text/html; charset=utf-8');
         $exists = is_dir($path);
     ?>
     <div class="check <?php echo $exists ? 'pass' : 'fail'; ?>">
-        <strong>/<?php echo $name; ?>/:</strong>
+        <strong>/<?php echo htmlspecialchars($name, ENT_QUOTES); ?>/:</strong>
         <?php if ($exists): ?>
-            Found at <code><?php echo $path; ?></code>
+            Found at <code><?php echo htmlspecialchars($path, ENT_QUOTES); ?></code>
         <?php else: ?>
-            NOT FOUND - Expected at <code><?php echo $path; ?></code>
+            NOT FOUND - Expected at <code><?php echo htmlspecialchars($path, ENT_QUOTES); ?></code>
         <?php endif; ?>
     </div>
     <?php endforeach; ?>
@@ -158,7 +151,7 @@ header('Content-Type: text/html; charset=utf-8');
         ?>
         <div class="check pass">
             <strong>Database Connection:</strong> SUCCESS
-            <br><small>Connected to: <?php echo $config['database']; ?></small>
+            <br><small>Connected to: <?php echo htmlspecialchars($config['database'] ?? '', ENT_QUOTES); ?></small>
         </div>
 
         <?php
@@ -334,13 +327,13 @@ header('Content-Type: text/html; charset=utf-8');
 
     <h2>8. Current Paths</h2>
     <pre>
-Document Root: <?php echo $_SERVER['DOCUMENT_ROOT']; ?>
+Document Root: <?php echo htmlspecialchars($_SERVER['DOCUMENT_ROOT'] ?? '', ENT_QUOTES); ?>
 
-Script Path: <?php echo __FILE__; ?>
+Script Path: <?php echo htmlspecialchars(__FILE__, ENT_QUOTES); ?>
 
-Base Directory: <?php echo $baseDir; ?>
+Base Directory: <?php echo htmlspecialchars($baseDir, ENT_QUOTES); ?>
 
-Thumbnails Path: <?php echo $thumbDir; ?>
+Thumbnails Path: <?php echo htmlspecialchars($thumbDir, ENT_QUOTES); ?>
     </pre>
 
     <h2>Summary</h2>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Offline — Archive Film Club</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #0a0a0b; color: #eee;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh; }
+    main { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 2rem 1rem; text-align: center; }
+    .card { max-width: 32rem; }
+    h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+    p { color: #8a8a92; margin: 0 0 1.25rem; line-height: 1.55; }
+    button { padding: .7em 1.3em; border-radius: 6px; border: 0;
+      background: #ff0000; color: #fff; font-weight: 500; cursor: pointer;
+      font: inherit; }
+    button:hover { background: #cc0000; }
+    .icon { font-size: 3rem; margin-bottom: 1rem; opacity: .8; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="card">
+      <div class="icon" aria-hidden="true">📡</div>
+      <h1>You're offline.</h1>
+      <p>It looks like your device isn't connected to the internet right now. Pages you've already visited may still work — try going back to a previous page.</p>
+      <button type="button" onclick="window.location.reload()">Try again</button>
+    </div>
+  </main>
+</body>
+</html>

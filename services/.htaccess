@@ -1,0 +1,2 @@
+# Server-side service classes. Never served over HTTP.
+Require all denied

@@ -22,8 +22,11 @@
 
   --color-text-primary: #f5f5f7;
   --color-text-secondary: #b4b4bb;
-  --color-text-tertiary: #76767e;
-  --color-text-muted: #54545a;
+  /* Bumped from #76767e (4.3:1 vs --color-bg-primary, fails AA for normal text) */
+  --color-text-tertiary: #8c8c94;
+  /* Bumped from #54545a (2.8:1, fails AA outright) so disabled/placeholder
+     text is still legible. Apply with aria-hidden where decorative. */
+  --color-text-muted: #6c6c74;
 
   --color-brand-primary: var(--brand-color, #ff0000);
   --color-brand-secondary: var(--brand-color-dark, #cc0000);

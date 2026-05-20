@@ -17,6 +17,15 @@ class CollectionApiError extends Error {
   }
 }
 
+// Lazy CSRF token read from <meta name="csrf-token">.
+let _csrfToken = null;
+function getCsrfToken() {
+  if (_csrfToken !== null) return _csrfToken;
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  _csrfToken = meta ? meta.getAttribute('content') || '' : '';
+  return _csrfToken;
+}
+
 async function call(path, { method = 'GET', body = null } = {}) {
   const options = {
     method,
@@ -26,6 +35,10 @@ async function call(path, { method = 'GET', body = null } = {}) {
   if (body !== null) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
+  }
+  if (method !== 'GET' && method !== 'HEAD') {
+    const t = getCsrfToken();
+    if (t) options.headers['X-CSRF-Token'] = t;
   }
 
   let res;

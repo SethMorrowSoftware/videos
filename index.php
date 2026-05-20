@@ -140,18 +140,36 @@ if (isset($_GET['video']) && !empty($_GET['video'])) {
     }
 }
 
-// Set canonical URL
-$protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-$ogUrl = $protocol . "://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+// Canonical / OG URL. We DO NOT use $_SERVER['HTTP_HOST'] here because it's
+// client-controlled (the Host header) and a forged value would let an
+// attacker poison the social-media card image to point at a hostile URL
+// served under our domain in feeds. safe_host() prefers APP_URL / SERVER_NAME.
+$protocol = is_https() ? 'https' : 'http';
+$canonicalHost = safe_host();
+
+// Normalize REQUEST_URI -- preserve `?video=` and `?q=` for canonical
+// identity, but drop ephemeral pagination so search-engine canonical URLs
+// don't fragment by page number.
+$reqUri = $_SERVER['REQUEST_URI'] ?? '/';
+$reqParts = explode('?', $reqUri, 2);
+$reqPath = $reqParts[0];
+$keptQuery = '';
+if (!empty($reqParts[1])) {
+    parse_str($reqParts[1], $qs);
+    $keepKeys = ['video', 'q', 'collection', 'sort', 'u', 's'];
+    $kept = array_intersect_key($qs, array_flip($keepKeys));
+    if ($kept) $keptQuery = '?' . http_build_query($kept);
+}
+$ogUrl = $protocol . '://' . $canonicalHost . $reqPath . $keptQuery;
 
 // Determine which image to use
 if ($useVideoThumbnail && $ogImage) {
     // We have a specific video - use its thumbnail from Archive.org
 } else {
-    // Homepage, search results, or failed video fetch - use local default
-    $ogImage = $protocol . "://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . "/og-default.png";
-    $ogImage = str_replace('//', '/', $ogImage);
-    $ogImage = str_replace(':/', '://', $ogImage);
+    // Homepage, search results, or failed video fetch - use local default.
+    // Build via the install base path so this works in subdirectory
+    // deployments (e.g. /films/) without the string-replace fragility.
+    $ogImage = $protocol . '://' . $canonicalHost . rtrim(app_cookie_path(), '/') . '/og-default.png';
 }
 
 // Helper function to safely output HTML attributes
@@ -301,6 +319,7 @@ if (!empty($recommendations_config['enabled']) && !empty($recommendations_config
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title><?= escapeAttr($pageTitle) ?></title>
   <meta name="description" content="<?= escapeAttr($ogDescription) ?>" />
   <meta name="theme-color" content="<?= escapeAttr($site_settings['brandColor']) ?>" />
@@ -345,7 +364,13 @@ if (!empty($recommendations_config['enabled']) && !empty($recommendations_config
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+  <!-- Favicons. SVG inline for crisp rendering everywhere; ICO/PNG
+       fallbacks for older browsers and search engines. Drop apple/PNG
+       files in the install root to override. -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgOEw0IDE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThMMTggMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkw2IDZDNC44OTU0MyA2IDQgNi44OTU0MyA0IDhaIiBzdHJva2U9IiNmZjAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik0xMCAxMkwxNCAxMk0xMiAxMEwxMiAxNCIgc3Ryb2tlPSIjZmYwMDAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K" />
+  <link rel="alternate icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
 
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="auth-styles.css">
@@ -560,21 +585,27 @@ if (!empty($recommendations_config['enabled']) && !empty($recommendations_config
     </svg>
   </button>
 
+  <?php
+    // JSON_HEX_TAG escapes "<" so a "</script>" sequence inside cached
+    // metadata can't break out of these script blocks. JSON_HEX_AMP /
+    // JSON_HEX_AROUND are belt-and-suspenders for older parsers.
+    $jsonFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+  ?>
   <!-- Site Settings Configuration -->
-  <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings) ?></script>
+  <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings, $jsonFlags) ?></script>
 
   <!-- Admin Recommended Videos Configuration (loaded at top of file) -->
-  <script id="recommendedConfig" type="application/json"><?= json_encode($recommendations_config) ?></script>
+  <script id="recommendedConfig" type="application/json"><?= json_encode($recommendations_config, $jsonFlags) ?></script>
 
   <!-- Featured Sections Configuration (loaded at top of file) -->
-  <script id="featuredSectionsConfig" type="application/json"><?= json_encode($featured_sections_config) ?></script>
+  <script id="featuredSectionsConfig" type="application/json"><?= json_encode($featured_sections_config, $jsonFlags) ?></script>
 
   <!-- Server-side metadata prefetch (loaded at top of file).
        For staff picks and featured sections, the server hits the local cache
        directly so the JS doesn't need to wait on a network round-trip to
        render cards on repeat visits. -->
-  <script id="recommendedMetadataPrefetch" type="application/json"><?= json_encode($recommendedPrefetch, JSON_UNESCAPED_SLASHES) ?></script>
-  <script id="featuredMetadataPrefetch" type="application/json"><?= json_encode($featuredPrefetch, JSON_UNESCAPED_SLASHES) ?></script>
+  <script id="recommendedMetadataPrefetch" type="application/json"><?= json_encode($recommendedPrefetch, $jsonFlags | JSON_UNESCAPED_SLASHES) ?></script>
+  <script id="featuredMetadataPrefetch" type="application/json"><?= json_encode($featuredPrefetch, $jsonFlags | JSON_UNESCAPED_SLASHES) ?></script>
 
   <!-- Theme Toggle Script -->
   <script>

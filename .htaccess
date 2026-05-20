@@ -1,13 +1,24 @@
 # Archive Film Club - Root .htaccess
-# For cPanel/Apache deployments
+# Tested on Apache 2.4 (the default on every supported cPanel host).
 
 # Enable rewrite engine
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Force HTTPS in production
-    RewriteCond %{HTTPS} off
-    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    # ---- HTTPS-only enforcement (uncomment after SSL is installed) ----
+    # Many cPanel sites issue SSL via AutoSSL on first launch. Leaving the
+    # block below uncommented before the cert is in place results in a 301
+    # redirect to a URL that fails SSL handshake -- and the 301 is cached
+    # by browsers, so users have to clear their cache later. Enable AFTER
+    # you've confirmed https:// loads correctly.
+    #
+    # The `X-Forwarded-Proto != https` guard avoids redirect loops behind
+    # Cloudflare flexible SSL / LiteSpeed proxy / any reverse proxy that
+    # terminates TLS upstream.
+    #
+    # RewriteCond %{HTTPS} off
+    # RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
     # Handle PHP files directly - don't rewrite them
     RewriteCond %{REQUEST_FILENAME} -f
@@ -28,49 +39,76 @@
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
-    Header set X-XSS-Protection "1; mode=block"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+    Header set Cross-Origin-Opener-Policy "same-origin"
 
-    # CORS for API endpoints - restrict to same origin by default
-    <FilesMatch "\.php$">
-        Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
-        Header set Access-Control-Allow-Headers "Content-Type"
-    </FilesMatch>
+    # HSTS: uncomment ALONGSIDE the HTTPS redirect block above, once your
+    # SSL cert is stable. Once browsers see this header they refuse to load
+    # the site over plain HTTP for the next year, so don't enable until
+    # you're confident HTTPS works.
+    # Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    # CSP: lenient default that allows the inline brand-color <style> blocks
+    # and inline event handlers still used by admin.js. Tighten over time
+    # by replacing inline handlers with addEventListener and inline styles
+    # with classes, then drop 'unsafe-inline'.
+    Header set Content-Security-Policy "default-src 'self'; img-src 'self' data: https://archive.org https://*.archive.org; media-src 'self' https://archive.org https://*.archive.org; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://archive.org https://*.archive.org; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
 </IfModule>
 
-# Security - Deny access to sensitive files
+# Security - Deny access to sensitive files (Apache 2.4 syntax)
 <FilesMatch "^\.env">
-    Order allow,deny
-    Deny from all
+    Require all denied
 </FilesMatch>
 
-<FilesMatch "^(config\.php|Database\.php)$">
-    Order allow,deny
-    Deny from all
+<FilesMatch "^(config\.php|Database\.php|bootstrap\.php)$">
+    Require all denied
 </FilesMatch>
 
-# Block direct web access to upgrade script
+# Block direct web access to legacy upgrade script
 <FilesMatch "^upgrade_cache\.php$">
-    Order allow,deny
-    Deny from all
+    Require all denied
 </FilesMatch>
 
-# AFTER INSTALL: either delete install.php, or uncomment this block to lock
-# it down at the web-server level. The installer also has an in-script guard
-# that refuses to run once an admin exists, but belt-and-suspenders is best.
-#<FilesMatch "^install\.php$">
-#    Order allow,deny
-#    Deny from all
-#</FilesMatch>
-
-# Block direct access to the beta-readiness tracker and any stray markdown
-# docs -- they are for developers, not visitors.
-<FilesMatch "\.(md|sql|log)$">
-    Order allow,deny
-    Deny from all
+# AFTER INSTALL: install.php is denied by default for safety. The installer
+# self-locks via .installed once an admin is created, but blocking access at
+# the web-server level prevents probing for misconfigurations. To re-run
+# the installer (e.g. wipe-and-reinstall), comment the block out temporarily.
+<FilesMatch "^install\.php$">
+    Require all denied
 </FilesMatch>
 
-# Deny access to directories
+# diagnose.php exposes infrastructure info; keep it admin-only and prefer
+# to delete the file once you've confirmed everything works.
+<Files "diagnose.php">
+    Require all denied
+</Files>
+
+# Block dev / dotfile leakage
+<FilesMatch "\.(md|sql|log|sample|example|ini|lock|bak|swp|swo)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Block JSON fallback files from direct fetch -- they're read server-side
+# and may contain settings the admin would rather not advertise. Comment
+# this out if you want them browseable.
+<FilesMatch "^(site-settings|recommendations|featured-sections)\.json$">
+    Require all denied
+</FilesMatch>
+
+# Deny access to source / data directories that should never be web-served.
+# NOTE: src/js/ is browser-loaded ES module code -- it MUST stay reachable
+# (which is why we don't include 'services' or 'db' broadly here -- they
+# match inside /src/js/services/ too). Each of those server-side dirs
+# instead ships its own deny-all .htaccess so subdirectory installs work
+# without us having to write a positional regex.
+RedirectMatch 404 (^|/)(electron|node_modules|logs)(/|$)
+
+# Disable directory listing
 <IfModule mod_autoindex.c>
     Options -Indexes
 </IfModule>
@@ -84,4 +122,12 @@
     ExpiresByType image/png "access plus 1 month"
     ExpiresByType image/gif "access plus 1 month"
     ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 month"
+    ExpiresByType application/manifest+json "access plus 1 week"
 </IfModule>
+
+# Friendly error pages
+ErrorDocument 404 /404.php
+ErrorDocument 403 /404.php
+ErrorDocument 500 /500.php

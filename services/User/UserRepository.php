@@ -76,9 +76,17 @@ class UserRepository {
     // =====================================================
 
     public function createGuest(string $sessionId, ?string $userAgent, string $ipHash): int {
+        // mb_strcut byte-truncates at a UTF-8 boundary so a partial multibyte
+        // sequence can't end up stored in the utf8mb4 column.
+        $ua = null;
+        if ($userAgent !== null && $userAgent !== '') {
+            $ua = function_exists('mb_strcut')
+                ? mb_strcut($userAgent, 0, 500, 'UTF-8')
+                : substr($userAgent, 0, 500);
+        }
         return $this->db->insert('users', [
             'session_id' => $sessionId,
-            'user_agent' => $userAgent ? substr($userAgent, 0, 500) : null,
+            'user_agent' => $ua,
             'ip_hash' => $ipHash,
             'role' => 'guest',
             'is_guest' => 1,

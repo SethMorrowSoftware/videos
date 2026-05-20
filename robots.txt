@@ -1,0 +1,30 @@
+# Archive Film Club — robots.txt
+#
+# Public pages (index, player, public collection slugs) are crawlable.
+# Anything that mutates state, exposes infra, or shows per-user data is
+# disallowed.
+
+User-agent: *
+Disallow: /api/
+Disallow: /install.php
+Disallow: /admin.php
+Disallow: /admin/
+Disallow: /cron/
+Disallow: /services/
+Disallow: /cache/
+Disallow: /db/
+Disallow: /electron/
+Disallow: /partials/
+Disallow: /logs/
+Disallow: /account.php
+Disallow: /collections.php
+Disallow: /login.php
+Disallow: /register.php
+Disallow: /forgot-password.php
+Disallow: /reset-password.php
+Disallow: /verify-email.php
+Disallow: /thumbnails/
+
+# Public assets and the public collection routes are allowed implicitly.
+# Add an explicit Sitemap line here once you generate one:
+# Sitemap: https://yourdomain.com/sitemap.xml

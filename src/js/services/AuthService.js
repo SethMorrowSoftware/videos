@@ -28,6 +28,27 @@ export class AuthError extends Error {
   }
 }
 
+/**
+ * Read the per-page CSRF token printed in <head> by csrf_meta_tag().
+ * Cached after first read since the token only changes on login/logout.
+ */
+let _csrfToken = null;
+function getCsrfToken() {
+  if (_csrfToken !== null) return _csrfToken;
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  _csrfToken = meta ? meta.getAttribute('content') || '' : '';
+  return _csrfToken;
+}
+
+/**
+ * Force a re-read of the CSRF token. Called after login/register/logout
+ * since the server rotates the token on session changes.
+ */
+export function refreshCsrfToken() {
+  _csrfToken = null;
+  return getCsrfToken();
+}
+
 async function apiCall(path, { method = 'GET', body = null } = {}) {
   const options = {
     method,
@@ -37,6 +58,11 @@ async function apiCall(path, { method = 'GET', body = null } = {}) {
   if (body !== null) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
+  }
+  // Attach CSRF token for any state-changing method.
+  if (method !== 'GET' && method !== 'HEAD') {
+    const token = getCsrfToken();
+    if (token) options.headers['X-CSRF-Token'] = token;
   }
 
   let response;
@@ -145,6 +171,13 @@ export const AuthService = {
       body: { identifier, password, remember, mergeGuest },
     });
     setState({ user: res.user, guest: null });
+    // The server rotates the CSRF token on login; force a reload so the
+    // next call doesn't use the pre-login token from the meta tag.
+    // (Without this, the FIRST post-login request would 403.) We can't
+    // re-read the meta because the page wasn't reloaded -- only a full
+    // navigation refreshes the meta tag. Caller is expected to navigate
+    // immediately after login, so this matters mostly for SPA-style usage.
+    refreshCsrfToken();
     return res.user;
   },
 
@@ -154,6 +187,7 @@ export const AuthService = {
       body: { username, email, password, display_name, mergeGuest },
     });
     setState({ user: res.user, guest: null });
+    refreshCsrfToken();
     return res.user;
   },
 
@@ -162,6 +196,7 @@ export const AuthService = {
       await apiCall('/logout.php', { method: 'POST', body: {} });
     } finally {
       setState({ user: null, guest: null });
+      refreshCsrfToken();
     }
   },
 

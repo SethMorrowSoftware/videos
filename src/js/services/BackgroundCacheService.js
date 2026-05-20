@@ -85,9 +85,13 @@ export class BackgroundCacheService {
     try {
       const response = await fetch(this.apiEndpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        credentials: 'same-origin',
+        headers: (() => {
+          const h = { 'Content-Type': 'application/json' };
+          const meta = document.querySelector('meta[name="csrf-token"]');
+          if (meta) h['X-CSRF-Token'] = meta.getAttribute('content') || '';
+          return h;
+        })(),
         body: JSON.stringify({
           action: 'queue',
           items: items,
@@ -131,9 +135,13 @@ export class BackgroundCacheService {
     try {
       const response = await fetch(this.apiEndpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        credentials: 'same-origin',
+        headers: (() => {
+          const h = { 'Content-Type': 'application/json' };
+          const meta = document.querySelector('meta[name="csrf-token"]');
+          if (meta) h['X-CSRF-Token'] = meta.getAttribute('content') || '';
+          return h;
+        })(),
         body: JSON.stringify({
           action: 'cache_single',
           archive_id: identifier,
@@ -160,9 +168,13 @@ export class BackgroundCacheService {
     try {
       const response = await fetch(this.apiEndpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        credentials: 'same-origin',
+        headers: (() => {
+          const h = { 'Content-Type': 'application/json' };
+          const meta = document.querySelector('meta[name="csrf-token"]');
+          if (meta) h['X-CSRF-Token'] = meta.getAttribute('content') || '';
+          return h;
+        })(),
         body: JSON.stringify({
           action: 'stats',
         }),

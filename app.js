@@ -595,10 +595,25 @@ class ArchiveVideoSearch {
   createResultCard(item) {
     const title = extractValue(item.title) || 'Untitled';
     const creator = extractValue(item.creator) || 'Unknown';
-    const date = extractValue(item.date) ? new Date(extractValue(item.date)).toLocaleDateString() : '';
-    const downloads = Number(item.downloads || 0).toLocaleString();
+    // Force en-US so date formatting doesn't vary by visitor locale on an
+    // otherwise English-only UI. Wrap in a try because new Date() of an
+    // invalid string returns 'Invalid Date' on some engines.
+    const rawDate = extractValue(item.date);
+    let date = '';
+    if (rawDate) {
+      try {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) date = d.toLocaleDateString('en-US');
+      } catch (_) { /* leave date empty */ }
+    }
+    const downloads = Number(item.downloads || 0).toLocaleString('en-US');
     const runtime = formatRuntime(item.runtime);
-    const href = `https://archive.org/details/${item.identifier}`;
+    // Archive identifier comes from the API and is matched [a-zA-Z0-9_.-] in
+    // sanitizeArchiveId on the server, but the search endpoint returns the
+    // raw archive.org payload -- defense in depth, URL-encode for use in
+    // attribute contexts.
+    const safeId = encodeURIComponent(item.identifier);
+    const href = `https://archive.org/details/${safeId}`;
     const thumbUrl = getThumbnailUrl(item.identifier);
     const license = extractValue(item.licenseurl) || '';
     const subject = extractValue(item.subject) || '';
@@ -631,14 +646,15 @@ class ArchiveVideoSearch {
       metaItems.push(`<span class="result-creator"><span class="meta-icon">${ICONS.user}</span> ${escapeHtml(creator)}</span>`);
     }
     if (showDate && date) {
-      metaItems.push(`<span><span class="meta-icon">${ICONS.calendar}</span> ${date}</span>`);
+      // date is already a locale-formatted Date string but escape defensively.
+      metaItems.push(`<span><span class="meta-icon">${ICONS.calendar}</span> ${escapeHtml(date)}</span>`);
     }
     if (showDownloadCount && downloads) {
-      metaItems.push(`<span><span class="meta-icon">${ICONS.download}</span> ${downloads}</span>`);
+      metaItems.push(`<span><span class="meta-icon">${ICONS.download}</span> ${escapeHtml(downloads)}</span>`);
     }
 
     return `
-      <article class="result-card" data-identifier="${item.identifier}" data-mediatype="${mediatype}">
+      <article class="result-card" data-identifier="${escapeHtml(item.identifier)}" data-mediatype="${escapeHtml(mediatype)}">
         <div class="result-thumbnail">
           <img src="${thumbUrl}"
                alt="Thumbnail for ${escapeHtml(title)}"

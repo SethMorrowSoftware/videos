@@ -5,6 +5,41 @@
  * with caching metadata support and error handling
  */
 
+/**
+ * Read the per-page CSRF token printed in <head> by csrf_meta_tag().
+ * Pulled lazily so we don't fight script load order.
+ */
+let _csrfToken = null;
+export function getCsrfToken() {
+    if (_csrfToken !== null) return _csrfToken;
+    const meta = typeof document !== 'undefined'
+        ? document.querySelector('meta[name="csrf-token"]')
+        : null;
+    _csrfToken = meta ? meta.getAttribute('content') || '' : '';
+    return _csrfToken;
+}
+
+/**
+ * Build the standard request init for a state-changing JSON call. Adds
+ * Content-Type, same-origin credentials, and the X-CSRF-Token header.
+ */
+export function jsonRequestInit(method, body) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    };
+    if (method !== 'GET' && method !== 'HEAD') {
+        const t = getCsrfToken();
+        if (t) headers['X-CSRF-Token'] = t;
+    }
+    return {
+        method,
+        headers,
+        credentials: 'same-origin',
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+    };
+}
+
 export class ApiService {
     // Relative path so subdirectory deployments (e.g. /films/ on cPanel)
     // resolve correctly against document.baseURI.
@@ -157,7 +192,13 @@ export class ApiService {
         try {
             const response = await fetch(`${this.BASE_URL}/user.php`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: (() => {
+                    const h = { 'Content-Type': 'application/json' };
+                    const t = getCsrfToken();
+                    if (t) h['X-CSRF-Token'] = t;
+                    return h;
+                })(),
                 body: JSON.stringify({
                     action: 'preferences',
                     preferences,
@@ -204,7 +245,13 @@ export class ApiService {
         try {
             const response = await fetch(`${this.BASE_URL}/bookmarks.php`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: (() => {
+                    const h = { 'Content-Type': 'application/json' };
+                    const t = getCsrfToken();
+                    if (t) h['X-CSRF-Token'] = t;
+                    return h;
+                })(),
                 body: JSON.stringify({
                     action: 'add',
                     id: video.id || video.identifier,
@@ -232,7 +279,13 @@ export class ApiService {
         try {
             const response = await fetch(`${this.BASE_URL}/bookmarks.php`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: (() => {
+                    const h = { 'Content-Type': 'application/json' };
+                    const t = getCsrfToken();
+                    if (t) h['X-CSRF-Token'] = t;
+                    return h;
+                })(),
                 body: JSON.stringify({
                     action: 'remove',
                     id: archiveId,
@@ -257,7 +310,13 @@ export class ApiService {
         try {
             const response = await fetch(`${this.BASE_URL}/bookmarks.php`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: (() => {
+                    const h = { 'Content-Type': 'application/json' };
+                    const t = getCsrfToken();
+                    if (t) h['X-CSRF-Token'] = t;
+                    return h;
+                })(),
                 body: JSON.stringify({
                     action: 'sync',
                     bookmarks,
@@ -326,7 +385,13 @@ export class ApiService {
         try {
             const response = await fetch(`${this.BASE_URL}/history.php`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: (() => {
+                    const h = { 'Content-Type': 'application/json' };
+                    const t = getCsrfToken();
+                    if (t) h['X-CSRF-Token'] = t;
+                    return h;
+                })(),
                 body: JSON.stringify({
                     action: 'update',
                     id: archiveId,
@@ -354,7 +419,13 @@ export class ApiService {
         try {
             const response = await fetch(`${this.BASE_URL}/history.php`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: (() => {
+                    const h = { 'Content-Type': 'application/json' };
+                    const t = getCsrfToken();
+                    if (t) h['X-CSRF-Token'] = t;
+                    return h;
+                })(),
                 body: JSON.stringify({ action: 'clear' }),
             });
 

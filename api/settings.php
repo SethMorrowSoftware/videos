@@ -17,11 +17,14 @@ $api->requireMethod(['GET', 'POST']);
 $settingsService = new SettingsService();
 
 if ($api->isGet()) {
-    header('Cache-Control: public, max-age=3600');
+    // Settings are public read but vary per install; short TTL so updates
+    // are visible quickly. No `private` here -- settings are not user-specific.
+    header('Cache-Control: public, max-age=300');
     $api->data($settingsService->getSettings());
 }
 
 // POST
+$api->requireCsrf();
 $api->requireAdmin();
 $body = $api->jsonBody();
 
@@ -78,9 +81,10 @@ try {
     error_log('[api/settings] DB save failed: ' . $e->getMessage());
 }
 
-// Best-effort JSON fallback for sites without DB
+// Best-effort JSON fallback for sites without DB. LOCK_EX prevents two
+// concurrent admin saves from producing a half-written file.
 $jsonPath = base_path('site-settings.json');
-@file_put_contents($jsonPath, json_encode($clean, JSON_PRETTY_PRINT));
+@file_put_contents($jsonPath, json_encode($clean, JSON_PRETTY_PRINT), LOCK_EX);
 @chmod($jsonPath, 0644);
 
 if (!$dbSaveSuccess && !file_exists($jsonPath)) {

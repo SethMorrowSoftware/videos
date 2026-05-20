@@ -14,8 +14,13 @@
 # Disable directory listing
 Options -Indexes
 
-# Allow access to PHP files
+# Allow access to PHP files (Apache 2.4 syntax)
 <FilesMatch "\.php$">
-    Order allow,deny
-    Allow from all
+    Require all granted
 </FilesMatch>
+
+# diagnose.php is hard-denied at the root .htaccess too, but defense in
+# depth: also block it here in case the root rule ever loosens.
+<Files "diagnose.php">
+    Require all denied
+</Files>

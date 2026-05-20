@@ -1,0 +1,2 @@
+# Database connection layer and migrations. Never served over HTTP.
+Require all denied

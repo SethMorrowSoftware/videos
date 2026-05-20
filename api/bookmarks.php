@@ -11,9 +11,15 @@ require_once __DIR__ . '/../bootstrap.php';
 $api = new ApiController();
 $api->requireMethod(['GET', 'POST']);
 
+// CSRF FIRST for POST so a forged request can't even reach DB code.
+if ($api->isPost()) {
+    $api->requireCsrf();
+}
+
 $userService = new UserService();
 
 if ($api->isGet()) {
+    header('Cache-Control: private, no-store');
     $api->data($userService->getBookmarks());
 }
 

@@ -78,21 +78,12 @@ class SettingsService {
     }
 
     /**
-     * Update a setting
+     * Update a single setting. Public entry point (callable outside a
+     * transaction) -- catches its own exceptions and returns bool.
      */
     public function setSetting(string $key, $value): bool {
-        $type = $this->determineType($value);
-        $stringValue = $this->valueToString($value, $type);
-
         try {
-            $this->db->query(
-                "INSERT INTO site_settings (setting_key, setting_value, setting_type)
-                 VALUES (?, ?, ?)
-                 ON DUPLICATE KEY UPDATE
-                    setting_value = VALUES(setting_value),
-                    setting_type = VALUES(setting_type)",
-                [$key, $stringValue, $type]
-            );
+            $this->writeSetting($key, $value);
             return true;
         } catch (Exception $e) {
             error_log("Failed to set setting: " . $e->getMessage());
@@ -101,20 +92,42 @@ class SettingsService {
     }
 
     /**
-     * Update multiple settings
+     * Internal helper: actually run the upsert. THROWS on failure so the
+     * surrounding transaction in updateSettings() can roll back. Without
+     * this split, a write failure inside the loop was silently swallowed
+     * and the transaction committed regardless.
+     */
+    private function writeSetting(string $key, $value): void {
+        $type = $this->determineType($value);
+        $stringValue = $this->valueToString($value, $type);
+
+        $this->db->query(
+            "INSERT INTO site_settings (setting_key, setting_value, setting_type)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                setting_value = VALUES(setting_value),
+                setting_type = VALUES(setting_type)",
+            [$key, $stringValue, $type]
+        );
+    }
+
+    /**
+     * Update multiple settings atomically. If any single write fails, the
+     * whole batch rolls back. (Previously: setSetting swallowed its own
+     * exception so the transaction committed partial state silently.)
      */
     public function updateSettings(array $settings): bool {
         try {
             $this->db->beginTransaction();
 
             foreach ($settings as $key => $value) {
-                $this->setSetting($key, $value);
+                $this->writeSetting($key, $value);
             }
 
             $this->db->commit();
             return true;
         } catch (Exception $e) {
-            $this->db->rollback();
+            try { $this->db->rollback(); } catch (Throwable $_) { /* nothing to roll back */ }
             error_log("Failed to update settings: " . $e->getMessage());
             return false;
         }
@@ -176,18 +189,26 @@ class SettingsService {
                 ]
             );
 
-            // Update videos if provided
+            // Update videos if provided. Defense-in-depth: sanitize the
+            // archive_id here too. The /api/recommendations.php endpoint
+            // already runs the same allow-list before calling us, but
+            // SettingsService is also reachable from install.php where the
+            // JSON data is operator-supplied.
             if (isset($data['videos']) && is_array($data['videos'])) {
                 // Remove existing videos
                 $this->db->query("DELETE FROM recommended_videos");
 
                 // Add new videos
                 foreach ($data['videos'] as $order => $video) {
+                    if (!is_array($video) || empty($video['id'])) continue;
+                    $archiveId = preg_replace('/[^a-zA-Z0-9_.-]/', '', (string)$video['id']);
+                    if ($archiveId === '') continue;
+
                     $this->db->insert('recommended_videos', [
-                        'archive_id' => $video['id'],
-                        'title' => $video['title'] ?? null,
-                        'creator' => $video['creator'] ?? null,
-                        'display_order' => $order,
+                        'archive_id' => $archiveId,
+                        'title' => isset($video['title']) ? mb_substr((string)$video['title'], 0, 500) : null,
+                        'creator' => isset($video['creator']) ? mb_substr((string)$video['creator'], 0, 255) : null,
+                        'display_order' => (int)$order,
                         'enabled' => 1,
                     ]);
                 }
@@ -288,14 +309,19 @@ class SettingsService {
                     // Clear existing videos for this section
                     $this->db->delete('featured_section_videos', 'section_id = ?', [$dbSection['id']]);
 
-                    // Add videos
+                    // Add videos (sanitize defense-in-depth -- see
+                    // updateRecommendations() for the reasoning).
                     foreach ($sectionData['videos'] ?? [] as $videoOrder => $video) {
+                        if (!is_array($video) || empty($video['id'])) continue;
+                        $archiveId = preg_replace('/[^a-zA-Z0-9_.-]/', '', (string)$video['id']);
+                        if ($archiveId === '') continue;
+
                         $this->db->insert('featured_section_videos', [
                             'section_id' => $dbSection['id'],
-                            'archive_id' => $video['id'],
-                            'title' => $video['title'] ?? null,
-                            'creator' => $video['creator'] ?? null,
-                            'display_order' => $videoOrder,
+                            'archive_id' => $archiveId,
+                            'title' => isset($video['title']) ? mb_substr((string)$video['title'], 0, 500) : null,
+                            'creator' => isset($video['creator']) ? mb_substr((string)$video['creator'], 0, 255) : null,
+                            'display_order' => (int)$videoOrder,
                         ]);
                     }
                 }

@@ -16,6 +16,20 @@ define('ARCHIVE_FILM_CLUB_BOOTSTRAPPED', true);
 define('ARCHIVE_FILM_CLUB_ROOT', __DIR__);
 
 // =====================================================
+// ERROR REPORTING (production-safe defaults)
+// =====================================================
+// Never display errors to the browser on shared hosting -- they can leak
+// query bodies, file paths, and DB credentials. Always log them instead.
+// Operators who need verbose output during install can override via .env
+// (APP_DEBUG=true).
+
+if (function_exists('ini_set')) {
+    @ini_set('display_errors', '0');
+    @ini_set('display_startup_errors', '0');
+    @ini_set('log_errors', '1');
+}
+
+// =====================================================
 // .env LOADER
 // =====================================================
 
@@ -36,6 +50,27 @@ if (file_exists($envFile)) {
             $_SERVER[$key] = $value;
         }
     }
+}
+
+// Toggle debug output once .env is loaded, if the operator opted in
+if (strtolower((string)(getenv('APP_DEBUG') ?: 'false')) === 'true'
+    && function_exists('ini_set')) {
+    @ini_set('display_errors', '1');
+}
+
+// =====================================================
+// LOG DIRECTORY (best-effort)
+// =====================================================
+// Auto-create logs/ so any code that wants to write to it doesn't have
+// to. Failures are non-fatal -- on hosts where the parent dir isn't
+// writable PHP will fall back to the system error log.
+
+$logsDir = __DIR__ . '/logs';
+if (!is_dir($logsDir)) {
+    @mkdir($logsDir, 0755, true);
+}
+if (is_dir($logsDir) && is_writable($logsDir) && function_exists('ini_set')) {
+    @ini_set('error_log', $logsDir . '/php-error.log');
 }
 
 // =====================================================
@@ -76,6 +111,74 @@ spl_autoload_register(function ($class) {
 });
 
 // =====================================================
+// REQUEST HELPERS
+// =====================================================
+
+/**
+ * Robust HTTPS detection. Honors:
+ *   - $_SERVER['HTTPS'] (any non-"off" truthy value)
+ *   - SERVER_PORT 443
+ *   - HTTP_X_FORWARDED_PROTO (Cloudflare, LiteSpeed proxy, AWS ALB)
+ *   - HTTP_X_FORWARDED_SSL
+ *
+ * Used everywhere we need to decide whether a request is over HTTPS,
+ * so cookies get the Secure flag and links stay on the right scheme.
+ */
+function is_https(): bool {
+    if (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') {
+        return true;
+    }
+    if (($_SERVER['SERVER_PORT'] ?? null) == 443) {
+        return true;
+    }
+    $proto = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    if ($proto === 'https') {
+        return true;
+    }
+    if (strtolower((string)($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')) === 'on') {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Return a host name safe to embed in a self-referential URL (canonical,
+ * OG image, password-reset link, etc.). NEVER uses HTTP_HOST because the
+ * Host header is client-controlled and has been used for phishing via
+ * password-reset links.
+ *
+ * Priority:
+ *   1. APP_URL env -- highest trust, set by operator
+ *   2. SERVER_NAME -- configured server-side, usually ServerName directive
+ *   3. localhost   -- last-ditch fallback
+ */
+function safe_host(): string {
+    $envUrl = getenv('APP_URL');
+    if ($envUrl) {
+        $parsed = parse_url($envUrl);
+        if (!empty($parsed['host'])) return $parsed['host'];
+    }
+    $serverName = $_SERVER['SERVER_NAME'] ?? '';
+    if ($serverName !== '') return $serverName;
+    return 'localhost';
+}
+
+/**
+ * Build a fully-qualified base URL for this install, honoring APP_URL when
+ * set. Pairs with safe_host() to make links emailed/served-out-of-band
+ * resistant to Host-header poisoning.
+ */
+function safe_base_url(): string {
+    $envUrl = getenv('APP_URL');
+    if ($envUrl) return rtrim($envUrl, '/');
+
+    $scheme = is_https() ? 'https' : 'http';
+    $host = safe_host();
+    $base = app_cookie_path();
+    return $scheme . '://' . $host . rtrim($base, '/');
+}
+
+// =====================================================
 // SESSION
 // =====================================================
 
@@ -100,20 +203,65 @@ function app_cookie_path(): string {
 }
 
 if (session_status() === PHP_SESSION_NONE) {
-    // Harden session cookie for auth use
-    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        || (($_SERVER['SERVER_PORT'] ?? null) == 443);
+    // Custom session name so we don't share PHPSESSID with sibling PHP apps
+    // on the same shared-cPanel domain (would let one install hijack
+    // another's session).
+    @session_name('afc_session');
 
+    // Harden session cookie for auth use
     session_set_cookie_params([
         'lifetime' => 0,
         'path' => app_cookie_path(),
         'domain' => '',
-        'secure' => $secure,
+        'secure' => is_https(),
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
 
     session_start();
+}
+
+// =====================================================
+// CSRF TOKEN
+// =====================================================
+// One token per session, rotated only on login/logout. Exposed to the
+// page via csrf_token() and to JS via the meta tag printed by
+// csrf_meta_tag(). ApiController::requireCsrf() validates an
+// X-CSRF-Token request header on every non-GET request.
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+/**
+ * Return the current CSRF token. Pages that render server-side forms
+ * (login.php, register.php, install.php, admin.php) should emit this
+ * inside a hidden input so the POST handler can verify it.
+ */
+function csrf_token(): string {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Constant-time check of a supplied token against the session token.
+ */
+function csrf_verify(?string $supplied): bool {
+    if ($supplied === null || $supplied === '') return false;
+    $expected = $_SESSION['csrf_token'] ?? '';
+    if ($expected === '') return false;
+    return hash_equals($expected, $supplied);
+}
+
+/**
+ * Print the <meta name="csrf-token"> tag for inclusion in <head>.
+ * JS reads window.AFC_CSRF (see csrf-init.php partial) or this meta
+ * directly to populate the X-CSRF-Token header on fetch() calls.
+ */
+function csrf_meta_tag(): string {
+    return '<meta name="csrf-token" content="' . htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') . '">';
 }
 
 // =====================================================
@@ -143,3 +291,48 @@ function base_path(string $relative = ''): string {
     $relative = ltrim($relative, '/');
     return ARCHIVE_FILM_CLUB_ROOT . ($relative === '' ? '' : '/' . $relative);
 }
+
+// =====================================================
+// GLOBAL ERROR HANDLERS
+// =====================================================
+// Without these, a thrown exception (e.g. "Database connection failed")
+// during an API request returns an empty 500 -- because display_errors=0
+// suppresses PHP's default error output. We wrap the response so callers
+// always get either valid JSON (for /api/*) or a friendly HTML page.
+
+set_exception_handler(function (\Throwable $e) {
+    error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+
+    $isApi = strpos($_SERVER['REQUEST_URI'] ?? '', '/api/') !== false;
+    $isAjax = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest'
+           || strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false;
+
+    if (!headers_sent()) {
+        http_response_code(500);
+        if ($isApi || $isAjax) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'Internal server error']);
+            return;
+        }
+        // Fall back to the rendered 500 page if it exists; otherwise a
+        // text-only line so we don't recursively crash.
+        $errorPage = __DIR__ . '/500.php';
+        if (file_exists($errorPage)) {
+            include $errorPage;
+        } else {
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "Internal server error.\n";
+        }
+    }
+});
+
+// Convert PHP fatal-error-class errors to exceptions so the handler above
+// catches them too. We DON'T catch warnings/notices -- they're best left
+// in error_log.
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) return false;
+    if ($severity & (E_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR)) {
+        throw new \ErrorException($message, 0, $severity, $file, $line);
+    }
+    return false;
+});
