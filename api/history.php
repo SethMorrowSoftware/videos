@@ -13,9 +13,15 @@ require_once __DIR__ . '/../bootstrap.php';
 $api = new ApiController();
 $api->requireMethod(['GET', 'POST']);
 
+// Cheap, no-DB CSRF check before touching anything else.
+if ($api->isPost()) {
+    $api->requireCsrf();
+}
+
 $userService = new UserService();
 
 if ($api->isGet()) {
+    header('Cache-Control: private, no-store');
     $action = $api->query('action', 'list');
 
     if ($action === 'list') {
@@ -34,15 +40,21 @@ if ($api->isGet()) {
     $api->error('Invalid action', 400);
 }
 
-// POST
+// POST (CSRF was checked above before any DB access)
 $body = $api->jsonBody();
 $action = $body['action'] ?? 'update';
 
 switch ($action) {
     case 'update':
         $id = ApiController::sanitizeArchiveId($api->required($body, 'id'));
-        $currentTime = (float)($body['currentTime'] ?? 0);
-        $duration = (float)($body['duration'] ?? 0);
+        $currentTime = max(0.0, (float)($body['currentTime'] ?? 0));
+        // Cap duration at 24 hours -- archive.org has nothing longer and this
+        // prevents absurd values (1e308) from corrupting the row.
+        $duration = max(0.0, min(86400.0, (float)($body['duration'] ?? 0)));
+        // Position can't exceed duration when duration is known.
+        if ($duration > 0 && $currentTime > $duration) {
+            $currentTime = $duration;
+        }
         $userService->updateProgress($id, $currentTime, $duration);
         $api->ok(['message' => 'Progress updated']);
         break;

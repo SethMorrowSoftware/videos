@@ -18,6 +18,12 @@ require_once __DIR__ . '/../bootstrap.php';
 $api = new ApiController();
 $api->requireMethod(['GET', 'POST']);
 
+// POSTs queue server-side cache fetches against archive.org, same threat
+// model as api/cache.php. GET is read-only -- pass through unguarded.
+if ($api->isPost()) {
+    $api->requireCsrf();
+}
+
 // Collect IDs from either query string or JSON body
 $ids = [];
 if ($api->isGet()) {

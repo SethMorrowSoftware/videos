@@ -154,15 +154,27 @@ if (isset($_GET['video']) && !empty($_GET['video'])) {
     }
 }
 
-$protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-$ogUrl = $protocol . "://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+// Canonical / OG URL. Same Host-header-poisoning reasoning as index.php:
+// safe_host() pulls from APP_URL → SERVER_NAME, never HTTP_HOST.
+$protocol = is_https() ? 'https' : 'http';
+$canonicalHost = safe_host();
+
+$reqUri = $_SERVER['REQUEST_URI'] ?? '/';
+$reqParts = explode('?', $reqUri, 2);
+$reqPath = $reqParts[0];
+$keptQuery = '';
+if (!empty($reqParts[1])) {
+    parse_str($reqParts[1], $qs);
+    $keepKeys = ['video', 'list', 'index'];
+    $kept = array_intersect_key($qs, array_flip($keepKeys));
+    if ($kept) $keptQuery = '?' . http_build_query($kept);
+}
+$ogUrl = $protocol . '://' . $canonicalHost . $reqPath . $keptQuery;
 
 if ($useVideoThumbnail && $ogImage) {
     // Use video thumbnail
 } else {
-    $ogImage = $protocol . "://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . "/og-default.png";
-    $ogImage = str_replace('//', '/', $ogImage);
-    $ogImage = str_replace(':/', '://', $ogImage);
+    $ogImage = $protocol . '://' . $canonicalHost . rtrim(app_cookie_path(), '/') . '/og-default.png';
 }
 
 function escapeAttr($value) {
@@ -190,6 +202,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title><?= escapeAttr($pageTitle) ?></title>
   <meta name="description" content="<?= escapeAttr($ogDescription) ?>" />
   <meta name="theme-color" content="<?= escapeAttr($site_settings['brandColor']) ?>" />
@@ -218,6 +231,9 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgOEw0IDE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThMMTggMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkw2IDZDNC44OTU0MyA2IDQgNi44OTU0MyA0IDhaIiBzdHJva2U9IiNmZjAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik0xMCAxMkwxNCAxMk0xMiAxMEwxMiAxNCIgc3Ryb2tlPSIjZmYwMDAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K" />
+  <link rel="alternate icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
 
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="player-styles.css">
@@ -245,6 +261,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   </script>
 </head>
 <body class="player-page">
+  <a class="skip-link" href="#playerCinema">Skip to player</a>
 
   <!-- Player Header -->
   <header class="player-header" id="playerHeader">
@@ -449,8 +466,8 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
     </div>
   </div>
 
-  <!-- Site Settings -->
-  <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings) ?></script>
+  <!-- Site Settings (JSON_HEX_TAG prevents `</script>` injection breakout) -->
+  <script id="siteSettingsConfig" type="application/json"><?= json_encode($site_settings, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 
   <!-- Theme Toggle Script -->
   <script>

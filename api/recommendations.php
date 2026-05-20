@@ -14,11 +14,12 @@ $api->requireMethod(['GET', 'POST']);
 $settingsService = new SettingsService();
 
 if ($api->isGet()) {
-    header('Cache-Control: public, max-age=3600');
+    header('Cache-Control: public, max-age=300');
     $api->data($settingsService->getRecommendations());
 }
 
 // POST
+$api->requireCsrf();
 $api->requireAdmin();
 $body = $api->jsonBody();
 
@@ -52,9 +53,9 @@ try {
     error_log('[api/recommendations] DB save failed: ' . $e->getMessage());
 }
 
-// JSON fallback
+// JSON fallback -- LOCK_EX guards against concurrent admin saves.
 $jsonPath = base_path('recommendations.json');
-@file_put_contents($jsonPath, json_encode($recommendations, JSON_PRETTY_PRINT));
+@file_put_contents($jsonPath, json_encode($recommendations, JSON_PRETTY_PRINT), LOCK_EX);
 @chmod($jsonPath, 0644);
 
 if (!$dbSaveSuccess && !file_exists($jsonPath)) {

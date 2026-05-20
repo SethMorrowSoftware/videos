@@ -65,19 +65,30 @@ try {
     error_log("Admin: Database not available, using JSON fallback: " . $e->getMessage());
 }
 
-// Fallback password from environment variable (never hardcode credentials)
-$ADMIN_PASSWORD = getenv('ADMIN_PASSWORD') ?: null;
+// Break-glass password fallback from environment variable. We REQUIRE the
+// value to be a bcrypt/argon hash (PASSWORD_DEFAULT-style) so a plaintext
+// leak of .env doesn't immediately yield admin access. Operators who set
+// a plain string get a clear error and are forced to hash it.
+$ADMIN_PASSWORD_HASH = getenv('ADMIN_PASSWORD') ?: null;
+$adminPasswordIsHashed = $ADMIN_PASSWORD_HASH
+    && (strncmp($ADMIN_PASSWORD_HASH, '$2y$', 4) === 0
+        || strncmp($ADMIN_PASSWORD_HASH, '$argon2', 7) === 0);
 
 // Break-glass password vs real DB admin — flag for dashboard banner.
 // If the install has a proper DB admin AND an ADMIN_PASSWORD is still set
 // in .env, the operator has a "second key" they may not remember. Views
 // read this flag and render an ADMIN_PASSWORD fallback warning banner.
-$adminPasswordFallbackActive = ($useDatabase && !empty($ADMIN_PASSWORD));
+$adminPasswordFallbackActive = ($useDatabase && !empty($ADMIN_PASSWORD_HASH));
 
-// Handle login
+// Handle login (POST only; isset($_POST['password']) covers both DB and
+// fallback flows -- the right-hand operand was a strict subset, so removed).
 $login_error = '';
-if (isset($_POST['password']) || (isset($_POST['username']) && isset($_POST['password']))) {
-    if ($useDatabase && $authService) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
+    // CSRF: required for both DB and fallback login paths. Without this
+    // an attacker can log a victim into the attacker's admin account.
+    if (!function_exists('csrf_verify') || !csrf_verify($_POST['_csrf'] ?? '')) {
+        $login_error = 'Session expired. Please reload and try again.';
+    } elseif ($useDatabase && $authService) {
         $username = trim($_POST['username'] ?? 'admin');
         $password = $_POST['password'] ?? '';
 
@@ -85,28 +96,44 @@ if (isset($_POST['password']) || (isset($_POST['username']) && isset($_POST['pas
         if ($user) {
             $authService->startSession($user);
             $admin_user = $user;
+            // Rotate CSRF token on auth state change
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         } else {
             $login_error = 'Invalid username or password';
         }
     } else {
-        if ($ADMIN_PASSWORD && hash_equals($ADMIN_PASSWORD, $_POST['password'])) {
+        $supplied = (string)($_POST['password'] ?? '');
+        if (!$ADMIN_PASSWORD_HASH) {
+            $login_error = 'Admin login is not configured. Run install.php or set ADMIN_PASSWORD (as a password_hash() value) in .env.';
+        } elseif (!$adminPasswordIsHashed) {
+            // Operator stored a plaintext password in .env. Reject the login
+            // outright and surface the problem -- this prevents both the
+            // plaintext-disclosure risk and the false sense of security.
+            $login_error = 'ADMIN_PASSWORD in .env must be a password_hash() value, not plaintext. Generate one with: php -r "echo password_hash(\'yourpassword\', PASSWORD_DEFAULT);"';
+        } elseif (password_verify($supplied, $ADMIN_PASSWORD_HASH)) {
             session_regenerate_id(true);
             $_SESSION['admin_logged_in'] = true;
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         } else {
             $login_error = 'Invalid password';
         }
     }
 }
 
-// Handle logout
-if (isset($_GET['logout'])) {
-    if ($useDatabase && $authService) {
-        $authService->endSession();
-    } else {
-        session_destroy();
+// Handle logout -- must be a POST with a valid CSRF token. A GET-based
+// logout is a CSRF sink: any third-party image tag pointed at
+// ?logout=1 silently signs the admin out.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout'])) {
+    if (function_exists('csrf_verify') && csrf_verify($_POST['_csrf'] ?? '')) {
+        if ($useDatabase && $authService) {
+            $authService->endSession();
+        } else {
+            session_destroy();
+        }
+        header('Location: admin.php');
+        exit;
     }
-    header('Location: admin.php');
-    exit;
+    // Bad/missing CSRF: silently fall through to the login screen.
 }
 
 // Check if logged in

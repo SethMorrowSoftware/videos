@@ -133,83 +133,88 @@ class MailService {
         }
         stream_set_timeout($fp, 15);
 
-        $read = function() use ($fp) {
-            $data = '';
-            while (($line = fgets($fp, 515)) !== false) {
-                $data .= $line;
-                if (isset($line[3]) && $line[3] === ' ') break;
-            }
-            return $data;
-        };
-        $write = function(string $cmd) use ($fp) {
-            fwrite($fp, $cmd . "\r\n");
-        };
-        $expect = function(string $code) use ($read) {
-            $response = $read();
-            if (strpos($response, $code) !== 0) {
-                throw new RuntimeException("SMTP unexpected response: $response");
-            }
-            return $response;
-        };
+        // The whole SMTP conversation lives inside a try/finally so a
+        // RuntimeException at any step closes the socket. Without the
+        // finally, prior versions leaked one open socket per failed send.
+        try {
+            $read = function() use ($fp) {
+                $data = '';
+                while (($line = fgets($fp, 515)) !== false) {
+                    $data .= $line;
+                    if (isset($line[3]) && $line[3] === ' ') break;
+                }
+                return $data;
+            };
+            $write = function(string $cmd) use ($fp) {
+                fwrite($fp, $cmd . "\r\n");
+            };
+            $expect = function(string $code) use ($read) {
+                $response = $read();
+                if (strpos($response, $code) !== 0) {
+                    throw new RuntimeException("SMTP unexpected response: $response");
+                }
+                return $response;
+            };
 
-        $expect('220');
-        $hostname = $this->stripCrlf($this->safeHost());
-        $write("EHLO $hostname");
-        $expect('250');
-
-        if ($encryption === 'tls') {
-            $write('STARTTLS');
             $expect('220');
-            if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-                throw new RuntimeException('SMTP STARTTLS failed');
-            }
+            $hostname = $this->stripCrlf($this->safeHost());
             $write("EHLO $hostname");
             $expect('250');
+
+            if ($encryption === 'tls') {
+                $write('STARTTLS');
+                $expect('220');
+                if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                    throw new RuntimeException('SMTP STARTTLS failed');
+                }
+                $write("EHLO $hostname");
+                $expect('250');
+            }
+
+            if ($username !== '') {
+                $write('AUTH LOGIN');
+                $expect('334');
+                $write(base64_encode($username));
+                $expect('334');
+                $write(base64_encode($password));
+                $expect('235');
+            }
+
+            $envFrom = getenv('MAIL_FROM') ?: ('noreply@' . $this->safeHost());
+            $from = $this->stripCrlf($envFrom);
+            if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
+                $from = 'noreply@' . $this->safeHost();
+            }
+            $write("MAIL FROM:<$from>");
+            $expect('250');
+            $write("RCPT TO:<$to>");
+            $expect('250');
+            $write('DATA');
+            $expect('354');
+
+            $boundary = bin2hex(random_bytes(16));
+            $fromHeader = $this->fromHeader();
+            $headers = "From: $fromHeader\r\n"
+                     . "To: <$to>\r\n"
+                     . "Subject: " . $this->stripCrlf($subject) . "\r\n"
+                     . "MIME-Version: 1.0\r\n"
+                     . "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n";
+
+            $body = "--$boundary\r\n"
+                  . "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+                  . $text . "\r\n"
+                  . "--$boundary\r\n"
+                  . "Content-Type: text/html; charset=utf-8\r\n\r\n"
+                  . $html . "\r\n"
+                  . "--$boundary--\r\n";
+
+            fwrite($fp, $headers . "\r\n" . $body . "\r\n.\r\n");
+            $expect('250');
+            $write('QUIT');
+            return true;
+        } finally {
+            if (is_resource($fp)) fclose($fp);
         }
-
-        if ($username !== '') {
-            $write('AUTH LOGIN');
-            $expect('334');
-            $write(base64_encode($username));
-            $expect('334');
-            $write(base64_encode($password));
-            $expect('235');
-        }
-
-        $envFrom = getenv('MAIL_FROM') ?: ('noreply@' . $this->safeHost());
-        $from = $this->stripCrlf($envFrom);
-        if (!filter_var($from, FILTER_VALIDATE_EMAIL)) {
-            $from = 'noreply@' . $this->safeHost();
-        }
-        $write("MAIL FROM:<$from>");
-        $expect('250');
-        $write("RCPT TO:<$to>");
-        $expect('250');
-        $write('DATA');
-        $expect('354');
-
-        $boundary = bin2hex(random_bytes(16));
-        $fromHeader = $this->fromHeader();
-        $headers = "From: $fromHeader\r\n"
-                 . "To: <$to>\r\n"
-                 . "Subject: $subject\r\n"
-                 . "MIME-Version: 1.0\r\n"
-                 . "Content-Type: multipart/alternative; boundary=\"$boundary\"\r\n";
-
-        $body = "--$boundary\r\n"
-              . "Content-Type: text/plain; charset=utf-8\r\n\r\n"
-              . $text . "\r\n"
-              . "--$boundary\r\n"
-              . "Content-Type: text/html; charset=utf-8\r\n\r\n"
-              . $html . "\r\n"
-              . "--$boundary--\r\n";
-
-        fwrite($fp, $headers . "\r\n" . $body . "\r\n.\r\n");
-        $expect('250');
-        $write('QUIT');
-        fclose($fp);
-
-        return true;
     }
 
     private function fromHeader(): string {

@@ -40,6 +40,8 @@ function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title>My Collections · <?= esc($site_settings['siteName']) ?></title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -108,10 +110,15 @@ function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
               $publicUrl = $c['is_public']
                   ? 'collection.php?u=' . urlencode($currentUser['username']) . '&s=' . urlencode($c['slug'])
                   : null;
-              $cover = $c['cover_thumbnail'] ?: 'og-default.png';
+              $cover = 'og-default.png';
+              if (!empty($c['cover_thumbnail'])
+                  && is_string($c['cover_thumbnail'])
+                  && preg_match('#^https?://[^\s"\'\\\\<>)]+$#i', $c['cover_thumbnail'])) {
+                $cover = $c['cover_thumbnail'];
+              }
             ?>
             <a class="collection-card" href="collection.php?id=<?= (int)$c['id'] ?>">
-              <div class="collection-card-cover" style="background-image:url('<?= esc($cover) ?>')"></div>
+              <div class="collection-card-cover" data-cover="<?= esc($cover) ?>"></div>
               <div class="collection-card-body">
                 <h3 class="collection-card-name"><?= esc($c['name']) ?></h3>
                 <div class="collection-card-meta">
@@ -125,6 +132,19 @@ function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
       </div>
     </section>
   </main>
+
+  <script>
+    // See collection.php for the rationale -- materialize background images
+    // from data-cover in JS so CSS-injection via quotes in URLs is moot.
+    (function(){
+      var nodes = document.querySelectorAll('[data-cover]');
+      for (var i = 0; i < nodes.length; i++) {
+        var url = nodes[i].getAttribute('data-cover');
+        if (!url) continue;
+        nodes[i].style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+      }
+    })();
+  </script>
 
   <script type="module">
     import { CollectionService } from './src/js/services/CollectionService.js';

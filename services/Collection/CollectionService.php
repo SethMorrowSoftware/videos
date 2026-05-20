@@ -25,17 +25,27 @@ class CollectionService {
     /**
      * Turn a collection name into a URL-safe slug, then make it unique
      * within the owning user's namespace by appending -2, -3, etc.
+     *
+     * Hard-capped at MAX_COLLECTIONS_PER_USER iterations. If we don't find
+     * a free slug by then (only possible if the user is somehow over cap)
+     * we fall back to a random-suffix slug rather than looping forever.
      */
     public function generateSlug(int $userId, string $name): string {
         $base = $this->slugify($name);
         if ($base === '') $base = 'collection';
         $slug = $base;
         $i = 2;
-        while ($this->db->fetchOne(
+        $maxAttempts = self::MAX_COLLECTIONS_PER_USER + 5;
+        while ($i <= $maxAttempts && $this->db->fetchOne(
             "SELECT id FROM user_collections WHERE user_id = ? AND slug = ?",
             [$userId, $slug]
         )) {
             $slug = $base . '-' . $i++;
+        }
+        if ($i > $maxAttempts) {
+            // Defensive fallback: 8 hex chars of randomness, vanishingly
+            // unlikely to collide.
+            $slug = $base . '-' . bin2hex(random_bytes(4));
         }
         return $slug;
     }
@@ -147,8 +157,28 @@ class CollectionService {
                 ? mb_substr(trim((string)$fields['description']), 0, 2000)
                 : null,
             'is_public' => !empty($fields['is_public']) ? 1 : 0,
-            'cover_thumbnail' => $fields['cover_thumbnail'] ?? null,
+            'cover_thumbnail' => $this->normalizeThumbnailUrl($fields['cover_thumbnail'] ?? null),
         ]);
+    }
+
+    /**
+     * Trim and length-cap a thumbnail URL, and reject obviously hostile
+     * schemes (javascript:, data:, etc.). Returns null for empty/invalid
+     * values so collections fall back to the auto-cover-from-first-item
+     * behavior.
+     */
+    private function normalizeThumbnailUrl($value): ?string {
+        if (!is_string($value)) return null;
+        $value = trim($value);
+        if ($value === '') return null;
+        if (strlen($value) > 500) return null;
+        // Only http(s) and same-origin relative paths.
+        if (preg_match('#^(https?:)?//#i', $value)) {
+            return preg_match('#^https?://#i', $value) ? $value : null;
+        }
+        // Reject other schemes (javascript:, data:, file:, etc.)
+        if (preg_match('/^[a-z][a-z0-9+.\-]*:/i', $value)) return null;
+        return $value;
     }
 
     /** Update metadata (name, description, is_public, cover). */
@@ -175,7 +205,7 @@ class CollectionService {
             $updates['is_public'] = !empty($fields['is_public']) ? 1 : 0;
         }
         if (array_key_exists('cover_thumbnail', $fields)) {
-            $updates['cover_thumbnail'] = $fields['cover_thumbnail'] ?: null;
+            $updates['cover_thumbnail'] = $this->normalizeThumbnailUrl($fields['cover_thumbnail']);
         }
 
         if (!$updates) return true;
@@ -234,7 +264,9 @@ class CollectionService {
             'archive_id' => $archiveId,
             'title' => mb_substr((string)($video['title'] ?? ''), 0, 500),
             'creator' => mb_substr((string)($video['creator'] ?? ''), 0, 255),
-            'thumbnail_url' => $video['thumbnail'] ?? $video['thumbnail_url'] ?? null,
+            'thumbnail_url' => $this->normalizeThumbnailUrl(
+                $video['thumbnail'] ?? $video['thumbnail_url'] ?? null
+            ),
             'note' => isset($video['note']) ? mb_substr((string)$video['note'], 0, 1000) : null,
             'position' => $nextPos,
         ]);

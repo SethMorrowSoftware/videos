@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 $api = new ApiController();
 $api->requireMethod('POST');
+$api->requireCsrf();
 
 $auth = new UserAuthService();
 $auth->logout();

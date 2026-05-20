@@ -20,8 +20,7 @@
 # Disable directory listing
 Options -Indexes
 
-# Only allow image files
+# Only allow image files (Apache 2.4 syntax)
 <FilesMatch "\.(?!(jpg|jpeg|png|gif|webp)$)[^.]*$">
-    Order allow,deny
-    Deny from all
+    Require all denied
 </FilesMatch>

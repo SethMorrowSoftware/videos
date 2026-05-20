@@ -62,6 +62,46 @@ class ApiController {
         }
     }
 
+    /**
+     * Reject any non-GET/HEAD request that doesn't carry a valid CSRF token
+     * in the X-CSRF-Token header (or `_csrf` field in the parsed JSON body).
+     *
+     * SameSite=Lax on the session cookie blocks most CSRF, but the API is
+     * fetched cross-page via JS so we layer a token check on top. The JS
+     * client picks up the token from the <meta name="csrf-token"> tag
+     * printed by csrf_meta_tag() in bootstrap.php.
+     *
+     * GET endpoints are exempt (they should never mutate state).
+     */
+    public function requireCsrf(): void {
+        $method = $this->method();
+        if ($method === 'GET' || $method === 'HEAD' || $method === 'OPTIONS') {
+            return;
+        }
+
+        $supplied = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if ($supplied === '' && $this->jsonBody !== null) {
+            $supplied = (string)($this->jsonBody['_csrf'] ?? '');
+        }
+        if ($supplied === '') {
+            // Try parsing the body opportunistically -- some endpoints call
+            // requireCsrf() before jsonBody(). We can't call jsonBody() here
+            // because it errors out on empty body, and some POST flows
+            // (e.g. logout) ship no body at all.
+            $raw = file_get_contents('php://input');
+            if ($raw !== false && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && isset($decoded['_csrf'])) {
+                    $supplied = (string)$decoded['_csrf'];
+                }
+            }
+        }
+
+        if (!function_exists('csrf_verify') || !csrf_verify($supplied)) {
+            $this->error('Invalid or missing CSRF token', 403);
+        }
+    }
+
     // =====================================================
     // INPUT
     // =====================================================

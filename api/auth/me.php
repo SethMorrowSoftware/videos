@@ -11,6 +11,8 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 $api = new ApiController();
 $api->requireMethod('GET');
+// Session-bound; never cache.
+header('Cache-Control: private, no-store');
 
 $context = new UserContext();
 $user = $context->current();

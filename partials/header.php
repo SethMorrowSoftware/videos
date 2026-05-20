@@ -81,7 +81,6 @@ if (!function_exists('escapeAttr')) {
               <div class="header-auth-menu-divider"></div>
               <a href="account.php" role="menuitem">Account</a>
               <a href="collections.php" role="menuitem">My collections</a>
-              <a href="index.php#bookmarks" role="menuitem">My bookmarks</a>
               <?php if (in_array($currentUser['role'] ?? '', ['admin', 'editor'], true)): ?>
                 <a href="admin.php" role="menuitem">Admin</a>
               <?php endif; ?>
@@ -118,4 +117,67 @@ if (!function_exists('escapeAttr')) {
       });
     });
   }
+
+  // Wire the server-rendered auth menu (toggle + logout). Pages that mount
+  // <AuthNav /> via JS get this wiring from there; pages that include this
+  // partial directly (account.php, collections.php, auth pages) need it
+  // here too -- without this the dropdown toggle and sign-out button
+  // would be dead.
+  (function() {
+    var root = document.querySelector('[data-auth-menu]');
+    if (!root) return;
+    var toggle = root.querySelector('[data-auth-menu-toggle]');
+    var panel = root.querySelector('[data-auth-menu-panel]');
+    if (toggle && panel) {
+      var close = function() {
+        panel.removeAttribute('data-open');
+        toggle.setAttribute('aria-expanded', 'false');
+      };
+      var open = function() {
+        panel.setAttribute('data-open', 'true');
+        toggle.setAttribute('aria-expanded', 'true');
+      };
+      toggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        panel.hasAttribute('data-open') ? close() : open();
+      });
+      document.addEventListener('click', function(e) {
+        if (!root.contains(e.target)) close();
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') close();
+      });
+    }
+
+    var logoutBtn = root.querySelector('[data-auth-logout]');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', function() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        var token = meta ? meta.getAttribute('content') || '' : '';
+        // Compute install base so subdirectory deployments work.
+        var here = window.location.pathname.replace(/\/[^/]*$/, '/');
+        logoutBtn.disabled = true;
+        fetch(here + 'api/auth/logout.php', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: token ? { 'X-CSRF-Token': token } : {},
+        }).then(function(res) {
+          if (res.ok) {
+            window.location.href = here + 'index.php';
+            return;
+          }
+          // CSRF or session expired -- reload the page so the user gets
+          // a fresh token and can try again. Silently redirecting to
+          // index.php would leave the user signed in but believe they
+          // logged out.
+          logoutBtn.disabled = false;
+          window.location.reload();
+        }).catch(function() {
+          // Network failure: leave the user where they are and re-enable
+          // the button so they can retry.
+          logoutBtn.disabled = false;
+        });
+      });
+    }
+  })();
 </script>

@@ -27,6 +27,9 @@ $token = isset($_GET['token']) ? (string)$_GET['token'] : '';
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title>Set new password · <?= htmlspecialchars($site_settings['siteName'], ENT_QUOTES) ?></title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

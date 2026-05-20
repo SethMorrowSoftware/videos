@@ -14,11 +14,12 @@ $api->requireMethod(['GET', 'POST']);
 $settingsService = new SettingsService();
 
 if ($api->isGet()) {
-    header('Cache-Control: public, max-age=3600');
+    header('Cache-Control: public, max-age=300');
     $api->data($settingsService->getFeaturedSections());
 }
 
 // POST
+$api->requireCsrf();
 $api->requireAdmin();
 $body = $api->jsonBody();
 
@@ -32,8 +33,16 @@ foreach ($body['sections'] as $section) {
         continue;
     }
 
+    $sectionIdClean = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$section['id']);
+    // Reject sections whose id is empty after sanitizing -- otherwise a
+    // hostile/malformed payload would silently collapse multiple sections
+    // into a single empty-id row via the unique key.
+    if ($sectionIdClean === '') {
+        continue;
+    }
+
     $clean = [
-        'id' => preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$section['id']),
+        'id' => $sectionIdClean,
         'title' => ApiController::sanitizeText($section['title'], 255),
         'description' => isset($section['description']) ? ApiController::sanitizeText($section['description'], 1000) : '',
         'enabled' => ApiController::sanitizeBool($section['enabled'] ?? true),
@@ -71,9 +80,9 @@ try {
     error_log('[api/sections] DB save failed: ' . $e->getMessage());
 }
 
-// JSON fallback
+// JSON fallback -- LOCK_EX guards against concurrent admin saves.
 $jsonPath = base_path('featured-sections.json');
-@file_put_contents($jsonPath, json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+@file_put_contents($jsonPath, json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
 @chmod($jsonPath, 0644);
 
 if (!$dbSaveSuccess && !file_exists($jsonPath)) {

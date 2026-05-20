@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 $api = new ApiController();
 $api->requireMethod('POST');
+$api->requireCsrf();
 
 $body = $api->jsonBody();
 $identifier = $api->str($body, 'identifier');
@@ -25,7 +26,15 @@ $context = new UserContext();
 $pendingGuestId = $context->pendingGuestId();
 
 $auth = new UserAuthService();
-$user = $auth->login($identifier, $password, $remember);
+try {
+    $user = $auth->login($identifier, $password, $remember);
+} catch (RuntimeException $e) {
+    // UserAuthService throws RuntimeException when the per-IP /
+    // per-identifier throttle has been tripped. Surface the message
+    // as a 429 so the user sees the friendly "try again later" copy
+    // instead of the generic 500 from the global exception handler.
+    $api->error($e->getMessage(), 429);
+}
 
 if (!$user) {
     $api->error('Invalid username or password', 401);

@@ -24,9 +24,15 @@ require_once __DIR__ . '/../bootstrap.php';
 $api = new ApiController();
 $api->requireMethod(['GET', 'POST']);
 
+if ($api->isPost()) {
+    $api->requireCsrf();
+}
+
 $service = new CollectionService();
 
 if ($api->isGet()) {
+    // User-scoped data; never cacheable by intermediaries.
+    header('Cache-Control: private, no-store');
     // --- public collection by slug ----------------------------------------
     $username = $api->query('username');
     $slug = $api->query('slug');
@@ -82,6 +88,7 @@ if ($api->isGet()) {
 }
 
 // ----- POST actions --------------------------------------------------------
+// CSRF already validated above before any DB construction.
 $user = $api->requireAuth();
 $userId = (int)$user['id'];
 $body = $api->jsonBody();

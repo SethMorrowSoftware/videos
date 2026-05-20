@@ -20,6 +20,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
 
 $api = new ApiController();
 $api->requireMethod('POST');
+// CSRF check applies to every POST -- the "queue these while I browse" path
+// is same-origin only and the token is in the meta tag for that same origin.
+$api->requireCsrf();
 
 // Actions that read or mutate shared cache state require admin. User-facing
 // "queue these items while I browse" actions are open to any same-origin
@@ -114,7 +117,12 @@ try {
         default:
             $api->error("Unknown action: $action", 400);
     }
-} catch (Throwable $e) {
-    error_log('[api/cache] ' . $e->getMessage());
+} catch (InvalidArgumentException $e) {
     $api->error($e->getMessage(), 400);
+} catch (Throwable $e) {
+    // Log full error server-side, return a generic 500 to the client so we
+    // don't leak DB messages or class names. The error_log line gives the
+    // operator enough to debug.
+    error_log('[api/cache] ' . $e->getMessage());
+    $api->error('Internal error', 500);
 }

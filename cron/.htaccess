@@ -1,0 +1,3 @@
+# Cron scripts are CLI-only. Block all web access regardless of the
+# php_sapi_name() guard inside each script.
+Require all denied

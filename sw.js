@@ -13,23 +13,34 @@
  *   - metadata-batch.php gets cache-first treatment like metadata.php
  */
 
-const CACHE_VERSION = 'ccfc-v2';
+const CACHE_VERSION = 'ccfc-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
 
+// Custom header we stamp on cached responses so getCacheAge works for
+// responses that don't carry a Date header (most archive.org responses
+// and any PHP endpoint that doesn't explicitly set one).
+const CACHED_AT_HEADER = 'sw-cached-at';
+
 // Static assets to cache on install (relative paths for subdirectory support).
-// Only list files that actually exist — cache.addAll() is atomic and a single
-// 404 aborts the whole install. The app is PHP-rendered, so there's no
-// index.html / manifest.json to precache.
+// Only list files we KNOW exist on every page. Player-only assets get
+// cached on demand by handleAppRequest so a homepage-first install
+// doesn't waste bandwidth fetching the player bundle.
 const STATIC_ASSETS = [
   './',
   './styles.css',
   './auth-styles.css',
-  './player-styles.css',
   './app.js',
-  './player.js',
-  'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap'
+  './offline.html',
+];
+
+// External resources we WANT cached, but whose failure should NOT abort
+// the install (Google Fonts can transiently 503; on-some-hosts the origin
+// is blocked outright). Cached opportunistically via cache.add inside a
+// Promise.allSettled wrapper.
+const STATIC_ASSETS_OPTIONAL = [
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap',
 ];
 
 // Cache size limits
@@ -51,20 +62,26 @@ const CACHE_EXPIRY = {
 
 /**
  * Install event - cache static assets
+ *
+ * Required assets are added one-at-a-time via Promise.allSettled so a single
+ * 404 (e.g. a stylesheet was renamed but the SW version wasn't bumped)
+ * doesn't abort the entire install and leave the user without any cache.
+ * Optional assets (external fonts) follow the same pattern.
  */
 self.addEventListener('install', event => {
-  console.log('[SW] Installing service worker...');
-  
   event.waitUntil(
-    caches.open(STATIC_CACHE)
-      .then(cache => {
-        console.log('[SW] Pre-caching static assets');
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .then(() => self.skipWaiting())
-      .catch(err => {
-        console.error('[SW] Failed to pre-cache:', err);
-      })
+    (async () => {
+      const cache = await caches.open(STATIC_CACHE);
+      await Promise.allSettled(
+        STATIC_ASSETS.map(url => cache.add(url).catch(err => {
+          console.warn('[SW] precache miss for', url, err && err.message);
+        }))
+      );
+      await Promise.allSettled(
+        STATIC_ASSETS_OPTIONAL.map(url => cache.add(url).catch(() => {}))
+      );
+      await self.skipWaiting();
+    })()
   );
 });
 
@@ -103,8 +120,13 @@ self.addEventListener('fetch', event => {
   // Skip chrome-extension and other non-http(s) requests
   if (!request.url.startsWith('http')) return;
 
-  // Handle different types of requests
-  if (request.destination === 'image' || url.pathname.includes('/img/')) {
+  // Handle different types of requests. Use destination + path-segment
+  // tests (not substring) so `/images/` and `/img-anything/` don't match
+  // the archive.org `/services/img/` thumbnail path.
+  const isImg = request.destination === 'image'
+                || /\/(img|services\/img|services\/img\/)\//.test(url.pathname);
+
+  if (isImg) {
     event.respondWith(handleImageRequest(request));
   } else if (url.origin === location.origin && url.pathname.includes('/api/')) {
     // Handle local API requests with caching (supports subdirectory deployment)
@@ -127,18 +149,35 @@ async function handleApiRequest(request) {
   const pathParts = url.pathname.split('/');
   const endpoint = pathParts[pathParts.length - 1];
 
+  // Endpoints that touch per-user data, auth state, or are explicitly
+  // state-changing -- never cached. Anything not on the safelist below
+  // also passes through without cache (default safe behavior).
+  const noCachePaths = [
+    '/api/auth/', '/api/bookmarks.php', '/api/history.php',
+    '/api/user.php', '/api/collections.php', '/api/cache.php',
+    '/api/stats.php', '/api/diagnose.php',
+  ];
+  if (noCachePaths.some(p => url.pathname.includes(p))) {
+    return fetch(request);
+  }
+
   // Determine cache strategy based on endpoint filename
   const cacheStrategies = {
     'search.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 5 min, instant repeat searches
     'metadata.php': { ttl: 24 * 60 * 60 * 1000, strategy: 'cache-first' },    // 1 day, metadata rarely changes
     'metadata-batch.php': { ttl: 24 * 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
     'thumbnail.php': { ttl: 365 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 1 year, immutable
-    'settings.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },  // 1 hour
-    'recommendations.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
-    'sections.php': { ttl: 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    'settings.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },   // 5 min so admin edits show up promptly
+    'recommendations.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    'sections.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },
   };
 
-  const config = cacheStrategies[endpoint] || { ttl: 5 * 60 * 1000, strategy: 'network-first' };
+  const config = cacheStrategies[endpoint];
+  if (!config) {
+    // Unknown endpoint: pass through without cache. Safer default than
+    // a blanket 5-minute network-first which can cache surprise data.
+    return fetch(request);
+  }
 
   try {
     switch (config.strategy) {
@@ -185,7 +224,8 @@ async function handleCacheFirst(request, ttl) {
 
   if (networkResponse.ok) {
     const cache = await caches.open(DYNAMIC_CACHE);
-    cache.put(request, networkResponse.clone());
+    cache.put(request, await stampCachedAt(networkResponse.clone()))
+         .catch(() => {});
   }
 
   return networkResponse;
@@ -200,7 +240,8 @@ async function handleNetworkFirst(request, ttl) {
 
     if (networkResponse.ok) {
       const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, networkResponse.clone());
+      cache.put(request, await stampCachedAt(networkResponse.clone()))
+           .catch(() => {});
     }
 
     return networkResponse;
@@ -221,11 +262,11 @@ async function handleStaleWhileRevalidate(request, ttl) {
 
   // Fetch and update cache in background
   const fetchPromise = fetchWithTimeout(request, 10000)
-    .then(networkResponse => {
+    .then(async networkResponse => {
       if (networkResponse.ok) {
-        caches.open(DYNAMIC_CACHE).then(cache => {
-          cache.put(request, networkResponse.clone());
-        }).catch(err => console.warn('[SW] Cache put failed:', err));
+        const cache = await caches.open(DYNAMIC_CACHE);
+        cache.put(request, await stampCachedAt(networkResponse.clone()))
+             .catch(err => console.warn('[SW] Cache put failed:', err));
       }
       return networkResponse;
     })
@@ -246,41 +287,64 @@ async function handleStaleWhileRevalidate(request, ttl) {
 }
 
 /**
- * Handle app requests (HTML, CSS, JS)
+ * Handle app requests (HTML, CSS, JS).
+ *
+ * - HTML: network-first. The server renders OG tags from the requested
+ *   ?video=... query so a cache-first strategy would serve stale tags to
+ *   social-media scrapers. Falls back to cache on offline.
+ * - CSS/JS: cache-first with background refresh.
  */
 async function handleAppRequest(request) {
+  const accept = request.headers.get('accept') || '';
+  const isHtml = accept.includes('text/html')
+                 || request.destination === 'document';
+
+  if (isHtml) {
+    // Network-first for HTML so OG tags / settings updates / new pages
+    // appear immediately. If network fails, fall back to cache, then to
+    // the offline page.
+    try {
+      const networkResponse = await fetchWithTimeout(request, 5000);
+      if (networkResponse.ok) {
+        const cache = await caches.open(STATIC_CACHE);
+        cache.put(request, await stampCachedAt(networkResponse.clone()))
+             .catch(() => {});
+      }
+      return networkResponse;
+    } catch (e) {
+      const cachedResponse = await caches.match(request);
+      if (cachedResponse) return cachedResponse;
+      const offlinePage = await caches.match('./offline.html');
+      if (offlinePage) return offlinePage;
+      return new Response('Offline — please check your connection.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+  }
+
+  // Static asset: cache-first with background refresh.
   try {
-    // Try cache first
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
-      // Update cache in background for HTML files
-      if (request.headers.get('accept')?.includes('text/html')) {
-        fetchAndUpdateCache(request, STATIC_CACHE);
-      }
+      // Refresh the cache in the background so updated CSS/JS gets picked
+      // up after the next reload without blocking this response.
+      fetchAndUpdateCache(request, STATIC_CACHE);
       return cachedResponse;
     }
-
-    // Network fallback
     const networkResponse = await fetch(request);
-    
-    // Cache successful responses
     if (networkResponse.ok) {
       const cache = await caches.open(STATIC_CACHE);
-      cache.put(request, networkResponse.clone());
+      cache.put(request, await stampCachedAt(networkResponse.clone()))
+           .catch(() => {});
     }
-    
     return networkResponse;
   } catch (error) {
-    console.error('[SW] App request failed:', error);
-    
-    // Return offline page if available
     const offlinePage = await caches.match('./offline.html');
     if (offlinePage) return offlinePage;
-    
-    // Fallback to a basic offline response
-    return new Response('Offline - Please check your connection', {
+    return new Response('Offline — please check your connection.', {
       status: 503,
-      headers: { 'Content-Type': 'text/plain' }
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   }
 }
@@ -307,12 +371,13 @@ async function handleArchiveRequest(request) {
 
       // Network request with timeout
       const networkResponse = await fetchWithTimeout(request, 10000);
-      
+
       // Cache successful responses
       if (networkResponse.ok) {
         const cache = await caches.open(DYNAMIC_CACHE);
-        cache.put(request, networkResponse.clone());
-        
+        cache.put(request, await stampCachedAt(networkResponse.clone()))
+             .catch(() => {});
+
         // Trim cache if needed
         trimCache(DYNAMIC_CACHE, CACHE_LIMITS.dynamic);
       }
@@ -362,7 +427,7 @@ async function handleImageRequest(request) {
     if (networkResponse.ok || networkResponse.status === 304) {
       const cache = await caches.open(IMAGE_CACHE);
       // .clone() because the response body is a stream that can only be read once
-      cache.put(request, networkResponse.clone()).catch(() => {});
+      cache.put(request, await stampCachedAt(networkResponse.clone())).catch(() => {});
 
       // Trim cache asynchronously; don't block the response
       trimCache(IMAGE_CACHE, CACHE_LIMITS.images);
@@ -400,9 +465,10 @@ async function handleDynamicRequest(request) {
     // Cache successful responses
     if (networkResponse.ok) {
       const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, networkResponse.clone());
+      cache.put(request, await stampCachedAt(networkResponse.clone()))
+           .catch(() => {});
     }
-    
+
     return networkResponse;
   } catch (error) {
     console.error('[SW] Dynamic request failed:', error);
@@ -442,23 +508,60 @@ async function fetchAndUpdateCache(request, cacheName) {
     const networkResponse = await fetch(request);
     if (networkResponse.ok) {
       const cache = await caches.open(cacheName);
-      cache.put(request, networkResponse);
+      cache.put(request, await stampCachedAt(networkResponse));
     }
   } catch (error) {
-    console.error('[SW] Background update failed:', error);
+    // Background refresh failure is non-fatal; the previous cached copy
+    // is still serving requests.
   }
 }
 
 /**
- * Get cache age from response headers
+ * Get cache age from response headers.
+ *
+ * Prefers our own `sw-cached-at` stamp (set by stampCachedAt before storing
+ * in any cache). Falls back to the upstream `date` header. Returns 0 (treat
+ * as fresh) when neither is present rather than Infinity (treat as stale),
+ * because Infinity caused cache-first paths to ALWAYS refetch, defeating
+ * the whole TTL-based strategy when upstream omits the Date header (which
+ * archive.org and PHP often do).
  */
 async function getCacheAge(response) {
+  const stamped = response.headers.get(CACHED_AT_HEADER);
+  if (stamped) {
+    const t = parseInt(stamped, 10);
+    if (Number.isFinite(t)) return Date.now() - t;
+  }
   const date = response.headers.get('date');
-  if (!date) return Infinity;
-  
-  const responseTime = new Date(date).getTime();
-  const now = Date.now();
-  return now - responseTime;
+  if (date) {
+    const t = new Date(date).getTime();
+    if (!Number.isNaN(t)) return Date.now() - t;
+  }
+  return 0;
+}
+
+/**
+ * Return a copy of the response with a sw-cached-at header set to the
+ * current epoch time in ms. Use BEFORE cache.put() so the stamp is
+ * available on later reads.
+ */
+async function stampCachedAt(response) {
+  if (!response || !response.body) return response;
+  // Some responses (opaque, 204, etc.) can't have their body cloned, so
+  // we fall back to returning the original. Cache key will then just
+  // miss the stamp and fall back to upstream `date` or "fresh".
+  try {
+    const blob = await response.blob();
+    const headers = new Headers(response.headers);
+    headers.set(CACHED_AT_HEADER, String(Date.now()));
+    return new Response(blob, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (_) {
+    return response;
+  }
 }
 
 /**
@@ -544,55 +647,41 @@ self.addEventListener('message', event => {
 });
 
 /**
- * Calculate total cache size
+ * Calculate total cache size.
+ *
+ * Prefers navigator.storage.estimate() which returns a fast, accurate
+ * quota-level estimate (and includes IndexedDB etc.). Walking every
+ * cache entry blob-by-blob is O(GB) and locks the SW thread.
  */
 async function getCacheSize() {
+  if (self.navigator && self.navigator.storage && self.navigator.storage.estimate) {
+    try {
+      const est = await self.navigator.storage.estimate();
+      return est.usage || 0;
+    } catch (_) { /* fall through to manual count */ }
+  }
+
+  // Fallback: count Content-Length headers (much faster than reading
+  // blobs and ~accurate for our static + image caches).
   const cacheNames = await caches.keys();
   let totalSize = 0;
-  
   for (const name of cacheNames) {
     const cache = await caches.open(name);
     const keys = await cache.keys();
-    
     for (const request of keys) {
       const response = await cache.match(request);
       if (response) {
-        const blob = await response.blob();
-        totalSize += blob.size;
+        const len = parseInt(response.headers.get('content-length') || '0', 10);
+        if (Number.isFinite(len)) totalSize += len;
       }
     }
   }
-  
   return totalSize;
 }
 
-/**
- * Background sync for bookmarks and progress
- */
-self.addEventListener('sync', event => {
-  if (event.tag === 'sync-bookmarks') {
-    event.waitUntil(syncBookmarks());
-  } else if (event.tag === 'sync-progress') {
-    event.waitUntil(syncProgress());
-  }
-});
-
-/**
- * Sync bookmarks with server (when implemented)
- */
-async function syncBookmarks() {
-  console.log('[SW] Syncing bookmarks...');
-  // This would sync with a backend service when available
-  // For now, bookmarks are stored in localStorage only
-}
-
-/**
- * Sync watch progress with server (when implemented)
- */
-async function syncProgress() {
-  console.log('[SW] Syncing watch progress...');
-  // This would sync with a backend service when available
-  // For now, progress is stored in localStorage only
-}
-
-console.log('[SW] Service worker loaded');
+// Note: a background-sync handler was removed -- the prior `syncBookmarks`
+// and `syncProgress` callbacks were stubs that just console.log'd. The
+// real sync now happens inline via the BookmarkManager and
+// VideoProgressTracker JS modules, which call /api/* directly when the
+// user is signed in. If we ever re-introduce true background sync,
+// register the 'sync' event listener again here.

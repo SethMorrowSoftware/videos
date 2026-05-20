@@ -34,10 +34,17 @@ A feature-rich web application for discovering and watching classic films from [
 
 ## Requirements
 
-- **PHP** 7.2+ with PDO extension
-- **MySQL** 5.7+ (optional, falls back to JSON files)
-- **Apache** with mod_rewrite enabled (or Nginx with equivalent rules)
-- **Node.js** 18+ (only needed for the Electron desktop app)
+- **PHP** 7.4+ (8.x recommended) with the following extensions enabled:
+  `pdo_mysql`, `mbstring`, `curl`, `openssl`, `gd`, `fileinfo`, `json`,
+  `session`, `filter`, `hash`. On cPanel these are toggled under
+  **Select PHP Version → Extensions**.
+- **MySQL** 5.7+ or **MariaDB** 10.2+ (optional — falls back to JSON files)
+- **Apache 2.4** with `mod_rewrite` and `mod_headers` (or Nginx with
+  equivalent rules). `AllowOverride All` or at least `AllowOverride
+  FileInfo Limit Indexes AuthConfig` must be enabled for the bundled
+  `.htaccess` to take effect.
+- **Node.js** 18+ — only needed for the optional Electron desktop app.
+  **Not required for the PHP/cPanel deployment.**
 
 ## Quick Start
 
@@ -73,9 +80,10 @@ DB_PASSWORD=your_db_password
 Visit `https://yourdomain.com/install.php` in your browser. The setup wizard will:
 
 1. Test your database connection
-2. Run the database migrations (001 → 004)
-3. Create your admin account
-4. Verify the installation
+2. Run the database migrations (001 → 005)
+3. Create your admin account (and write the `.installed` lock immediately)
+4. Migrate any existing JSON data (or skip on a fresh install)
+5. Show you the post-install lock-down checklist
 
 > The first user registered through the installer (or via `register.php` on a
 > fresh install) is automatically promoted to `admin`. Every subsequent signup
@@ -103,30 +111,93 @@ mysql -u your_db_user -p your_database_name < db/migrations/001_initial_schema.s
 mysql -u your_db_user -p your_database_name < db/migrations/002_permanent_local_cache.sql
 mysql -u your_db_user -p your_database_name < db/migrations/003_user_accounts.sql
 mysql -u your_db_user -p your_database_name < db/migrations/004_collections.sql
+mysql -u your_db_user -p your_database_name < db/migrations/005_auth_throttle.sql
 ```
 
 After the migrations are in place, create the first admin account by
 visiting `register.php` in your browser — the first registered account is
-auto-promoted to `admin`. Alternatively, set `ADMIN_PASSWORD` in `.env` as
-a break-glass fallback (and unset it once a real admin account exists).
+auto-promoted to `admin`. Alternatively, set `ADMIN_PASSWORD` in `.env`
+as a break-glass fallback. It **must** be a `password_hash()` value, not
+plaintext — generate one with:
 
-## cPanel Hosting
+```bash
+php -r "echo password_hash('your-strong-password', PASSWORD_DEFAULT), \"\n\";"
+```
 
-For cPanel shared hosting (e.g., Hostinger, Bluehost, GoDaddy):
+Then unset `ADMIN_PASSWORD` once a real admin account exists. While both
+DB admin and fallback are active the dashboard shows a warning banner.
 
-1. Go to **cPanel > MySQL Databases** and create a database + user
-2. Add the user to the database with **ALL PRIVILEGES**
-3. Upload files to `public_html/` (or a subdirectory like `public_html/films/`)
-4. Create the `.env` file via **cPanel > File Manager**
-5. Visit `install.php` to complete setup
+## cPanel Hosting — production checklist
+
+For cPanel shared hosting (e.g., Hostinger, Bluehost, GoDaddy, A2,
+HostGator). Follow these steps in order; the installer also walks you
+through the database half but the steps below cover what cPanel doesn't
+automate.
+
+1. **Set PHP to 7.4 or newer.** *cPanel → Select PHP Version*. Enable
+   the extensions listed under **Requirements** above (especially `gd`
+   and `fileinfo` — they're commonly disabled by default).
+2. **Create the database via cPanel.** *cPanel → MySQL Databases* → make
+   a database, then a user, then add the user to the database with
+   **ALL PRIVILEGES**. Names get prefixed with your cPanel account name
+   (`cpaneluser_filmclub`, `cpaneluser_filmuser`). The installer
+   intentionally does NOT try to `CREATE DATABASE` — shared cPanel users
+   don't have that privilege.
+3. **Upload the project** to `public_html/` (or a subdirectory like
+   `public_html/films/`). You can omit `electron/`, `node_modules/`,
+   `package.json`, and `package-lock.json` — those are Electron-only.
+4. **File permissions.** Most cPanel hosts run PHP as the owning user
+   under suPHP/PHP-FPM, so default perms work — but verify:
+   - The install root, `thumbnails/`, and `logs/` need to be **writable**
+     by the PHP user (typically `0755` on dirs, `0644` on files).
+   - The installer auto-creates `logs/` and `cache/` paths it needs.
+5. **Install SSL first**, then enable HTTPS enforcement. The root
+   `.htaccess` ships with the force-HTTPS block **commented out**.
+   Uncomment it (and the matching `Strict-Transport-Security` line)
+   only after AutoSSL has issued a certificate and `https://yourdomain.com`
+   loads cleanly. Doing it earlier 301-redirects users to a broken URL.
+6. **Run the installer** at `https://yourdomain.com/install.php`.
+   The installer self-locks after step 3 and the bundled `.htaccess`
+   denies `install.php` by default — but always also delete the file
+   once you're done. (To rerun the installer later you can temporarily
+   comment out the deny block.)
+7. **Configure email** by editing `.env`:
+   ```ini
+   APP_URL=https://yourdomain.com
+   MAIL_FROM=noreply@yourdomain.com
+   MAIL_FROM_NAME=Archive Film Club
+   SMTP_HOST=smtp.example.com
+   SMTP_PORT=587
+   SMTP_USERNAME=...
+   SMTP_PASSWORD=...
+   SMTP_ENCRYPTION=tls
+   ```
+   `APP_URL` is critical — it pins canonical hostnames in password-reset
+   links so a forged Host header can't poison them. Without SMTP, the
+   PHP `mail()` fallback works on most shared hosts but emails are often
+   spam-filtered.
+8. **Add the cron jobs.** *cPanel → Cron Jobs*. Use the full paths the
+   File Manager shows (right-click any file → Copy Path). Suggested
+   schedules:
+   ```
+   */5  * * * *  php /home/cpaneluser/public_html/cron/process_cache_queue.php
+   0    * * * *  php /home/cpaneluser/public_html/cron/cache_cleanup.php
+   */30 * * * *  php /home/cpaneluser/public_html/cron/cache_warmer.php
+   ```
+   If your plan doesn't include cron, the app still works — the cache
+   just won't trim itself.
+9. **Run migration 005** (auth throttling). The installer covers this
+   automatically; if you ran an older version, hit *Step 2 → Create Tables*
+   in the installer once to apply.
+10. **Delete `api/diagnose.php`** once you've confirmed everything is
+    working. The file exposes infrastructure info and is denied by
+    `.htaccess` and admin-only by default, but the safest state is gone.
 
 > **Subdirectory installs work out of the box.** All client and server URLs
 > in this app are relative, the session cookie is install-scoped via
 > `app_cookie_path()`, and the service worker registers from the install
 > directory — so `/films/` and `/shorts/` on the same domain run fully
 > independent installs without colliding.
-
-The setup flow above is the current, supported path for cPanel installs.
 
 ## Project Structure
 

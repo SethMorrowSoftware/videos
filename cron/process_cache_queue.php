@@ -20,15 +20,27 @@ if (php_sapi_name() !== 'cli') {
 }
 
 // Change to the script's directory
-chdir(__DIR__ . '/..');
+if (!@chdir(__DIR__ . '/..')) {
+    fwrite(STDERR, "Could not chdir into install root\n");
+    exit(1);
+}
 
-// Set up error handling
+// Set up error handling. ini_set + set_time_limit are commonly in
+// disable_functions on shared cPanel; guard each call.
 error_reporting(E_ALL);
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
+if (function_exists('ini_set')) {
+    @ini_set('display_errors', '0');
+    @ini_set('log_errors', '1');
+}
 
-// Prevent timeout for long-running processes
-set_time_limit(300);
+// Try to extend the timeout for long-running processes. If set_time_limit
+// is disabled, fall back to processing a smaller per-batch limit (see
+// the $limit below) so we still finish within the default
+// max_execution_time of ~30s on shared hosts.
+$hasExtendedTimeout = false;
+if (function_exists('set_time_limit')) {
+    $hasExtendedTimeout = @set_time_limit(300);
+}
 
 require_once __DIR__ . '/../services/LocalStorageService.php';
 require_once __DIR__ . '/../cache/CacheManager.php';
@@ -39,8 +51,10 @@ try {
     $localStorageService = new LocalStorageService();
     $cacheManager = new CacheManager();
 
-    // Process main queue
-    $limit = 30; // Process up to 30 items per run
+    // Process main queue. Drop the batch size when we couldn't extend the
+    // per-request timeout, so a 30s shared-cPanel default still completes
+    // cleanly.
+    $limit = $hasExtendedTimeout ? 30 : 10;
     $results = $localStorageService->processQueue($limit);
 
     echo "Metadata processed: {$results['metadata_processed']}\n";
