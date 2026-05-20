@@ -1,4 +1,5 @@
 {
+  "_comment": "Drop PNG icons (icon-192.png, icon-512.png, icon-512-maskable.png) plus favicon.ico and apple-touch-icon.png into the install root to enable PWA install with branded icons. Until those exist, the inline SVG favicon in <head> handles browser tabs.",
   "name": "Archive Film Club",
   "short_name": "Film Club",
   "description": "Discover and watch classic films from Archive.org",

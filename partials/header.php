@@ -156,12 +156,26 @@ if (!function_exists('escapeAttr')) {
         var token = meta ? meta.getAttribute('content') || '' : '';
         // Compute install base so subdirectory deployments work.
         var here = window.location.pathname.replace(/\/[^/]*$/, '/');
+        logoutBtn.disabled = true;
         fetch(here + 'api/auth/logout.php', {
           method: 'POST',
           credentials: 'same-origin',
           headers: token ? { 'X-CSRF-Token': token } : {},
-        }).finally(function() {
-          window.location.href = here + 'index.php';
+        }).then(function(res) {
+          if (res.ok) {
+            window.location.href = here + 'index.php';
+            return;
+          }
+          // CSRF or session expired -- reload the page so the user gets
+          // a fresh token and can try again. Silently redirecting to
+          // index.php would leave the user signed in but believe they
+          // logged out.
+          logoutBtn.disabled = false;
+          window.location.reload();
+        }).catch(function() {
+          // Network failure: leave the user where they are and re-enable
+          // the button so they can retry.
+          logoutBtn.disabled = false;
         });
       });
     }
