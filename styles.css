@@ -2210,6 +2210,17 @@ button {
   gap: var(--space-2);
 }
 
+/* Hide the error container when there's no message in it AND when the
+   HTML `hidden` attribute is set. Without these the empty <div id="error"
+   hidden> in index.php was rendering as a red-tinted rectangle above the
+   results -- the `.error { display: flex }` rule was overriding the
+   browser-default `[hidden] { display: none }` rule (equal specificity,
+   author wins). */
+.error:empty,
+.error[hidden] {
+  display: none;
+}
+
 .no-results,
 .fallback-message {
   text-align: center;
