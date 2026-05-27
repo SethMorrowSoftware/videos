@@ -26,11 +26,10 @@
                         <th class="num">Comments</th>
                         <th class="num">Bookmarks</th>
                         <th class="num">Watches</th>
-                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="usersTableBody">
-                    <tr><td colspan="8" class="admin-table-empty">Loading…</td></tr>
+                    <tr><td colspan="7" class="admin-table-empty">Loading…</td></tr>
                 </tbody>
             </table>
         </div>

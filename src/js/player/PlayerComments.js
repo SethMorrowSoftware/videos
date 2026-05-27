@@ -84,27 +84,31 @@ function renderBody(text) {
 }
 
 async function apiCall(action, payload, opts = {}) {
+  let res, json;
   if (opts.method === 'GET' || !opts.method) {
     const q = new URLSearchParams({ action, ...payload });
-    const res = await fetch(`${API}?${q}`, { credentials: 'same-origin' });
-    const json = await res.json().catch(() => ({ success: false, error: 'Network error' }));
-    if (!res.ok || !json.success) {
-      throw new Error(json.error || `Request failed (${res.status})`);
-    }
-    return json;
+    res = await fetch(`${API}?${q}`, { credentials: 'same-origin', signal: opts.signal });
+  } else {
+    res = await fetch(API, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
+      },
+      body: JSON.stringify({ action, ...payload }),
+      signal: opts.signal,
+    });
   }
-  const res = await fetch(API, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRF-Token': getCsrfToken(),
-    },
-    body: JSON.stringify({ action, ...payload }),
-  });
-  const json = await res.json().catch(() => ({ success: false, error: 'Network error' }));
+  json = await res.json().catch(() => ({ success: false, error: 'Network error' }));
   if (!res.ok || !json.success) {
-    const err = new Error(json.error || `Request failed (${res.status})`);
+    let message = json.error || `Request failed (${res.status})`;
+    if (res.status === 429) {
+      message = json.error || "You're posting too quickly — wait a moment and try again.";
+    } else if (res.status === 401) {
+      message = 'Your session has expired. Please sign in again.';
+    }
+    const err = new Error(message);
     err.status = res.status;
     throw err;
   }
@@ -126,6 +130,9 @@ export class PlayerComments {
     this.openMenu = null;          // currently open kebab menu element
     this.editingId = null;
     this.replyingTo = null;
+    this.likeInFlight = new Set();
+    this.docClickHandler = null;
+    this.authUnsub = null;
   }
 
   // =====================================================
@@ -146,21 +153,52 @@ export class PlayerComments {
       this.user = AuthService.getUser() || null;
       this.guestPending = false;
       this.renderComposerArea();
-      if (this.loaded) this.renderList();
-      AuthService.onChange(({ user }) => {
+      if (this.loaded) this.renderListSafely();
+      this.authUnsub = AuthService.onChange(({ user }) => {
         this.user = user || null;
         this.renderComposerArea();
-        if (this.loaded) this.renderList();
+        if (this.loaded) this.renderListSafely();
       });
     });
 
-    // Close kebab menus on outside click
-    document.addEventListener('click', (e) => {
+    // Close kebab + sort menus on outside click. Stored so destroy() can
+    // unhook -- otherwise repeated mounts leak listeners holding `this`.
+    this.docClickHandler = (e) => {
       if (this.openMenu && !this.openMenu.contains(e.target)) {
-        this.openMenu.removeAttribute('data-open');
-        this.openMenu = null;
+        this.closeOpenMenu();
       }
-    });
+      if (this.sortMenu && !this.sortBtn.contains(e.target) && !this.sortMenu.contains(e.target)) {
+        this.sortMenu.setAttribute('data-open', 'false');
+        this.sortBtn.setAttribute('aria-expanded', 'false');
+      }
+    };
+    document.addEventListener('click', this.docClickHandler);
+  }
+
+  destroy() {
+    if (this.docClickHandler) {
+      document.removeEventListener('click', this.docClickHandler);
+      this.docClickHandler = null;
+    }
+    if (this.authUnsub && typeof this.authUnsub === 'function') {
+      this.authUnsub();
+      this.authUnsub = null;
+    }
+  }
+
+  // Skip a full re-render when the user has an in-flight composer or edit
+  // form open; rebuilding the list would drop their typing.
+  renderListSafely() {
+    if (this.editingId !== null || this.replyingTo !== null) return;
+    this.renderList();
+  }
+
+  closeOpenMenu() {
+    if (!this.openMenu) return;
+    this.openMenu.removeAttribute('data-open');
+    const toggle = this.openMenu.querySelector('[data-kebab-toggle]');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    this.openMenu = null;
   }
 
   cacheNodes() {
@@ -181,11 +219,7 @@ export class PlayerComments {
       e.stopPropagation();
       const open = this.sortMenu.getAttribute('data-open') === 'true';
       this.sortMenu.setAttribute('data-open', open ? 'false' : 'true');
-    });
-    document.addEventListener('click', (e) => {
-      if (!this.sortMenu) return;
-      if (this.sortBtn.contains(e.target) || this.sortMenu.contains(e.target)) return;
-      this.sortMenu.setAttribute('data-open', 'false');
+      this.sortBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
     });
     this.sortMenu.addEventListener('click', (e) => {
       const opt = e.target.closest('[data-sort-value]');
@@ -199,6 +233,7 @@ export class PlayerComments {
       this.sortLabel.textContent = value === 'top' ? 'Top comments' : 'Newest first';
       this.updateSortMenuChecks();
       this.sortMenu.setAttribute('data-open', 'false');
+      this.sortBtn.setAttribute('aria-expanded', 'false');
       this.reload();
     });
 
@@ -232,6 +267,12 @@ export class PlayerComments {
     this.threads = [];
     this.threadsById = new Map();
     this.loaded = false;
+    // Clear any inline UI state from the previous video so dangling DOM
+    // refs don't get touched once the list is re-rendered.
+    this.closeOpenMenu();
+    this.editingId = null;
+    this.replyingTo = null;
+    this.likeInFlight.clear();
     this.root.style.display = '';
     this.renderComposerArea();
     this.showLoading();
@@ -243,6 +284,9 @@ export class PlayerComments {
     this.page = 1;
     this.threads = [];
     this.threadsById = new Map();
+    this.closeOpenMenu();
+    this.editingId = null;
+    this.replyingTo = null;
     this.showLoading();
     await this.fetchAndAppend({ replace: true });
   }
@@ -255,8 +299,12 @@ export class PlayerComments {
         page: this.page,
       });
       const list = res.comments || [];
-      if (replace) this.threads = [];
+      if (replace) {
+        this.threads = [];
+        this.threadsById = new Map();
+      }
       for (const c of list) {
+        if (this.threadsById.has(c.id)) continue;   // dedupe across pages
         this.threads.push(c);
         this.threadsById.set(c.id, c);
         if (Array.isArray(c.replies)) {
@@ -397,7 +445,8 @@ export class PlayerComments {
           this.renderList();
           this.toast.show('Comment posted', 'success');
         } catch (err) {
-          this.toast.show(err.message || 'Could not post comment', 'error');
+          if (err.status === 401) this.handleAuthLost();
+          else this.toast.show(err.message || 'Could not post comment', 'error');
           throw err;
         }
       },
@@ -518,6 +567,7 @@ export class PlayerComments {
   threadHtml(thread) {
     const replies = thread.replies || [];
     const replyTotal = thread.reply_count || replies.length;
+    const hasMoreReplies = replyTotal > replies.length;
     const replyButtonText = replyTotal === 0
       ? ''
       : `${ICONS.chevronDown} <span>${replyTotal} ${replyTotal === 1 ? 'reply' : 'replies'}</span>`;
@@ -530,6 +580,11 @@ export class PlayerComments {
           </button>
           <div class="comment-replies" data-replies hidden>
             ${replies.map((r) => this.commentHtml(r, true)).join('')}
+            ${hasMoreReplies ? `
+              <button type="button" class="comments-load-more-replies" data-load-more-replies>
+                Show more replies
+              </button>
+            ` : ''}
           </div>
         ` : '<div class="comment-replies" data-replies hidden></div>'}
         <div class="comment-reply-form-slot" data-reply-slot></div>
@@ -613,10 +668,63 @@ export class PlayerComments {
         });
       }
 
+      const loadMoreBtn = threadEl.querySelector('[data-load-more-replies]');
+      if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', () => this.loadMoreReplies(threadId, loadMoreBtn));
+      }
+
       threadEl.querySelectorAll('.comment').forEach((commentEl) => {
         this.bindCommentEvents(commentEl, threadId);
       });
     });
+  }
+
+  // Fetch additional replies for a thread (paginated by id). Surgical DOM
+  // update -- appends new replies and removes the load-more button without
+  // re-rendering the entire list, so other open composers stay intact.
+  async loadMoreReplies(threadId, btn) {
+    const thread = this.threads.find((t) => t.id === threadId);
+    if (!thread) return;
+    thread.replies = thread.replies || [];
+    const afterId = thread.replies.length ? thread.replies[thread.replies.length - 1].id : 0;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Loading…';
+    try {
+      const res = await apiCall('replies', { parent_id: threadId, after_id: afterId });
+      const fresh = res.replies || [];
+      const have = new Set(thread.replies.map((r) => r.id));
+      const newReplies = fresh.filter((r) => !have.has(r.id));
+
+      const threadEl = this.listEl.querySelector(`.comment-thread[data-thread-id="${threadId}"]`);
+      const repliesEl = threadEl && threadEl.querySelector('[data-replies]');
+      if (repliesEl) {
+        // Insert each new reply before the load-more button
+        for (const r of newReplies) {
+          thread.replies.push(r);
+          this.threadsById.set(r.id, r);
+          const wrap = document.createElement('div');
+          wrap.innerHTML = this.commentHtml(r, true);
+          const newEl = wrap.firstElementChild;
+          repliesEl.insertBefore(newEl, btn);
+          this.bindCommentEvents(newEl, threadId);
+        }
+      }
+      // If the server returned a short page, we've hit the end -- remove
+      // the button. Otherwise leave it for further pagination.
+      const REPLY_PAGE_SIZE = 50;
+      if (fresh.length < REPLY_PAGE_SIZE) {
+        btn.remove();
+      } else {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (err.status === 401) this.handleAuthLost();
+      else this.toast.show(err.message || 'Could not load more replies', 'error');
+    }
   }
 
   bindCommentEvents(commentEl, threadId) {
@@ -635,8 +743,9 @@ export class PlayerComments {
       const menu = kebab.querySelector('[data-kebab-menu]');
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Close any other open kebab (and sync its aria-expanded) first.
         if (this.openMenu && this.openMenu !== kebab) {
-          this.openMenu.removeAttribute('data-open');
+          this.closeOpenMenu();
         }
         const open = kebab.getAttribute('data-open') === 'true';
         kebab.setAttribute('data-open', open ? 'false' : 'true');
@@ -647,8 +756,7 @@ export class PlayerComments {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           const action = btn.getAttribute('data-action');
-          kebab.removeAttribute('data-open');
-          this.openMenu = null;
+          this.closeOpenMenu();
           if (action === 'edit') this.handleEdit(commentId);
           if (action === 'delete') this.handleDelete(commentId);
           if (action === 'report') this.handleReport(commentId);
@@ -666,9 +774,14 @@ export class PlayerComments {
       this.toast.show('Sign in to like comments', 'info');
       return;
     }
-    // Optimistic
+    // Coalesce rapid clicks: ignore additional clicks until the request
+    // settles, so two fast taps can't post like+unlike out of order.
+    if (this.likeInFlight.has(commentId)) return;
+    this.likeInFlight.add(commentId);
+    btn.disabled = true;
+
     const comment = this.threadsById.get(commentId);
-    if (!comment) return;
+    if (!comment) { this.likeInFlight.delete(commentId); btn.disabled = false; return; }
     const prevLiked = comment.liked;
     const prevCount = comment.like_count;
     comment.liked = !prevLiked;
@@ -683,8 +796,20 @@ export class PlayerComments {
       comment.liked = prevLiked;
       comment.like_count = prevCount;
       this.updateLikeUi(btn, comment);
-      this.toast.show(err.message || 'Could not update like', 'error');
+      if (err.status === 401) this.handleAuthLost();
+      else this.toast.show(err.message || 'Could not update like', 'error');
+    } finally {
+      this.likeInFlight.delete(commentId);
+      btn.disabled = false;
     }
+  }
+
+  // Called when any API hits 401: drop user, re-render composer to the
+  // sign-in CTA, and let the next interaction prompt the user.
+  handleAuthLost() {
+    this.user = null;
+    this.renderComposerArea();
+    this.toast.show('Your session has expired. Please sign in again.', 'error');
   }
 
   updateLikeUi(btn, comment) {
@@ -729,34 +854,40 @@ export class PlayerComments {
       autoFocus: true,
       submitLabel: 'Reply',
       onSubmit: async (text) => {
-        const res = await apiCall('create', {
-          video_id: this.archiveId,
-          body: text,
-          parent_id: replyTargetId,
-        }, { method: 'POST' });
-        const reply = res.comment;
-        const thread = this.threads.find((t) => t.id === threadId);
-        if (thread) {
-          thread.replies = thread.replies || [];
-          thread.replies.push(reply);
-          thread.reply_count = (thread.reply_count || 0) + 1;
-        }
-        this.threadsById.set(reply.id, reply);
-        slot.innerHTML = '';
-        this.replyingTo = null;
-        this.renderList();
-        // Auto-open the replies section
-        const newThreadEl = this.listEl.querySelector(`.comment-thread[data-thread-id="${threadId}"]`);
-        if (newThreadEl) {
-          const repliesEl = newThreadEl.querySelector('[data-replies]');
-          const toggleBtn = newThreadEl.querySelector('[data-toggle-replies]');
-          if (repliesEl) repliesEl.hidden = false;
-          if (toggleBtn) {
-            toggleBtn.setAttribute('aria-expanded', 'true');
-            toggleBtn.classList.add('is-open');
+        try {
+          const res = await apiCall('create', {
+            video_id: this.archiveId,
+            body: text,
+            parent_id: replyTargetId,
+          }, { method: 'POST' });
+          const reply = res.comment;
+          const thread = this.threads.find((t) => t.id === threadId);
+          if (thread) {
+            thread.replies = thread.replies || [];
+            thread.replies.push(reply);
+            thread.reply_count = (thread.reply_count || 0) + 1;
           }
+          this.threadsById.set(reply.id, reply);
+          slot.innerHTML = '';
+          this.replyingTo = null;
+          this.renderList();
+          // Auto-open the replies section
+          const newThreadEl = this.listEl.querySelector(`.comment-thread[data-thread-id="${threadId}"]`);
+          if (newThreadEl) {
+            const repliesEl = newThreadEl.querySelector('[data-replies]');
+            const toggleBtn = newThreadEl.querySelector('[data-toggle-replies]');
+            if (repliesEl) repliesEl.hidden = false;
+            if (toggleBtn) {
+              toggleBtn.setAttribute('aria-expanded', 'true');
+              toggleBtn.classList.add('is-open');
+            }
+          }
+          this.toast.show('Reply posted', 'success');
+        } catch (err) {
+          if (err.status === 401) this.handleAuthLost();
+          else this.toast.show(err.message || 'Could not post reply', 'error');
+          throw err;
         }
-        this.toast.show('Reply posted', 'success');
       },
     });
   }
@@ -792,17 +923,29 @@ export class PlayerComments {
       initialValue: original,
       submitLabel: 'Save',
       onSubmit: async (text) => {
-        const res = await apiCall('edit', { id: commentId, body: text }, { method: 'POST' });
-        Object.assign(comment, res.comment);
-        this.editingId = null;
-        this.renderList();
-        this.toast.show('Comment updated', 'success');
+        try {
+          const res = await apiCall('edit', { id: commentId, body: text }, { method: 'POST' });
+          Object.assign(comment, res.comment);
+          this.editingId = null;
+          this.renderList();
+          this.toast.show('Comment updated', 'success');
+        } catch (err) {
+          if (err.status === 401) this.handleAuthLost();
+          else this.toast.show(err.message || 'Could not save changes', 'error');
+          throw err;
+        }
       },
     });
   }
 
   async handleDelete(commentId) {
-    if (!window.confirm('Delete this comment? This cannot be undone.')) return;
+    const ok = await this.confirmModal({
+      title: 'Delete comment?',
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await apiCall('delete', { id: commentId }, { method: 'POST' });
       const target = this.threadsById.get(commentId);
@@ -823,7 +966,8 @@ export class PlayerComments {
       this.renderList();
       this.toast.show('Comment deleted', 'success');
     } catch (err) {
-      this.toast.show(err.message || 'Could not delete comment', 'error');
+      if (err.status === 401) this.handleAuthLost();
+      else this.toast.show(err.message || 'Could not delete comment', 'error');
     }
   }
 
@@ -832,14 +976,88 @@ export class PlayerComments {
       this.toast.show('Sign in to report comments', 'info');
       return;
     }
-    const reason = window.prompt('Why are you reporting this comment? (optional)');
+    const reason = await this.reportModal();
     if (reason === null) return; // canceled
     try {
       await apiCall('report', { id: commentId, reason: reason || null }, { method: 'POST' });
       this.toast.show('Thanks — a moderator will review this comment.', 'success');
     } catch (err) {
-      this.toast.show(err.message || 'Could not submit report', 'error');
+      if (err.status === 401) this.handleAuthLost();
+      else this.toast.show(err.message || 'Could not submit report', 'error');
     }
+  }
+
+  // =====================================================
+  // MODALS (delete confirm, report-with-reason)
+  // =====================================================
+
+  // Generic confirm dialog styled to match the existing share-modal. Returns
+  // a Promise<bool>. Escape / overlay-click / Cancel → false; Confirm → true.
+  confirmModal({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'comments-modal-overlay';
+      overlay.innerHTML = `
+        <div class="comments-modal" role="dialog" aria-modal="true" aria-labelledby="commentsModalTitle">
+          <h3 id="commentsModalTitle">${escapeHtml(title)}</h3>
+          <p class="comments-modal-body">${escapeHtml(message)}</p>
+          <div class="comments-modal-actions">
+            <button type="button" class="comments-btn comments-btn--ghost" data-cancel>${escapeHtml(cancelLabel)}</button>
+            <button type="button" class="comments-btn ${danger ? 'comments-btn--danger' : 'comments-btn--primary'}" data-confirm>${escapeHtml(confirmLabel)}</button>
+          </div>
+        </div>
+      `;
+      const close = (value) => {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+        resolve(value);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') close(false);
+        if (e.key === 'Enter') close(true);
+      };
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+      overlay.querySelector('[data-cancel]').addEventListener('click', () => close(false));
+      overlay.querySelector('[data-confirm]').addEventListener('click', () => close(true));
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+      overlay.querySelector('[data-confirm]').focus();
+    });
+  }
+
+  // Report dialog with an optional-reason textarea. Resolves to the reason
+  // string (possibly empty) or null if the user cancels.
+  reportModal() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'comments-modal-overlay';
+      overlay.innerHTML = `
+        <div class="comments-modal" role="dialog" aria-modal="true" aria-labelledby="commentsReportTitle">
+          <h3 id="commentsReportTitle">Report comment</h3>
+          <p class="comments-modal-body">Let our moderators know what's wrong. Reason is optional.</p>
+          <textarea class="comments-modal-textarea" rows="3" maxlength="255" placeholder="Optional: why are you reporting this?" data-reason></textarea>
+          <div class="comments-modal-actions">
+            <button type="button" class="comments-btn comments-btn--ghost" data-cancel>Cancel</button>
+            <button type="button" class="comments-btn comments-btn--primary" data-confirm>Report</button>
+          </div>
+        </div>
+      `;
+      const textarea = overlay.querySelector('[data-reason]');
+      const close = (value) => {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+        resolve(value);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') close(null);
+      };
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+      overlay.querySelector('[data-cancel]').addEventListener('click', () => close(null));
+      overlay.querySelector('[data-confirm]').addEventListener('click', () => close(textarea.value.trim()));
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+      textarea.focus();
+    });
   }
 }
 
