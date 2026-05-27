@@ -341,13 +341,36 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
           <span id="episodeIndicator" class="episode-indicator" style="display:none;"></span>
         </div>
         <div class="controls-bar-right">
+          <div id="speedSelector" class="quality-selector">
+            <button id="speedBtn" class="pctl-btn quality-btn" title="Playback speed" aria-label="Playback speed">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span id="speedLabel" class="quality-label">1x</span>
+            </button>
+            <div id="speedMenu" class="quality-menu"></div>
+          </div>
+          <button id="pipBtn" class="pctl-btn" title="Picture in picture (i)" aria-label="Picture in picture" style="display:none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="4" width="20" height="14" rx="2"/>
+              <rect x="12" y="10" width="8" height="6" rx="1" fill="currentColor"/>
+            </svg>
+          </button>
           <div id="qualitySelector" class="quality-selector" style="display:none;">
-            <button id="qualityBtn" class="pctl-btn quality-btn" title="Video quality">
+            <button id="qualityBtn" class="pctl-btn quality-btn" title="Video quality" aria-label="Video quality">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 15V17M12 7V13M8 3H16L21 8V16L16 21H8L3 16V8L8 3Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span id="qualityLabel" class="quality-label">HD</span>
             </button>
             <div id="qualityMenu" class="quality-menu"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Buffering indicator — appears mid-playback when the network stalls. -->
+      <div id="bufferingIndicator" class="player-buffering" aria-hidden="true">
+        <div class="loading-spinner" aria-hidden="true">
+          <div class="spinner-ring"></div>
         </div>
       </div>
 
@@ -455,6 +478,35 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
       </aside>
     </div>
   </main>
+
+  <!-- Keyboard Shortcuts Help (triggered by `?`) -->
+  <div id="shortcutsHelp" class="shortcuts-help" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" hidden>
+    <div class="shortcuts-help-panel">
+      <div class="shortcuts-help-header">
+        <h3>Keyboard shortcuts</h3>
+        <button type="button" id="shortcutsHelpClose" class="shortcuts-help-close" aria-label="Close shortcuts">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="shortcuts-help-grid">
+        <div class="shortcut-row"><kbd>Space</kbd><kbd>K</kbd><span>Play / pause</span></div>
+        <div class="shortcut-row"><kbd>F</kbd><span>Fullscreen</span></div>
+        <div class="shortcut-row"><kbd>T</kbd><span>Theater mode</span></div>
+        <div class="shortcut-row"><kbd>I</kbd><span>Picture in picture</span></div>
+        <div class="shortcut-row"><kbd>M</kbd><span>Mute / unmute</span></div>
+        <div class="shortcut-row"><kbd>J</kbd><span>Back 10s</span></div>
+        <div class="shortcut-row"><kbd>L</kbd><span>Forward 10s</span></div>
+        <div class="shortcut-row"><kbd>&larr;</kbd><kbd>&rarr;</kbd><span>Seek &plusmn;5s</span></div>
+        <div class="shortcut-row"><kbd>&uarr;</kbd><kbd>&darr;</kbd><span>Volume</span></div>
+        <div class="shortcut-row"><kbd>&lt;</kbd><kbd>&gt;</kbd><span>Slower / faster</span></div>
+        <div class="shortcut-row"><kbd>Shift</kbd> + <kbd>N</kbd><span>Next episode</span></div>
+        <div class="shortcut-row"><kbd>Shift</kbd> + <kbd>P</kbd><span>Previous episode</span></div>
+        <div class="shortcut-row"><kbd>?</kbd><span>This menu</span></div>
+      </div>
+    </div>
+  </div>
 
   <!-- Resume Prompt (non-blocking) -->
   <div id="resumePrompt" class="resume-prompt" role="dialog" aria-label="Resume playback" style="display: none;">

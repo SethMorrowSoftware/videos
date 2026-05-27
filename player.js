@@ -93,7 +93,30 @@ class VideoPlayer {
     this.upNextPlay = document.getElementById('upNextPlay');
     this.upNextCancel = document.getElementById('upNextCancel');
     this.playerCinema = document.getElementById('playerCinema');
+    this.bufferingIndicator = document.getElementById('bufferingIndicator');
+    this.pipBtn = document.getElementById('pipBtn');
+    this.speedBtn = document.getElementById('speedBtn');
+    this.speedMenu = document.getElementById('speedMenu');
+    this.speedLabel = document.getElementById('speedLabel');
+    this.shortcutsHelp = document.getElementById('shortcutsHelp');
+    this.shortcutsHelpClose = document.getElementById('shortcutsHelpClose');
     this._upNextTimer = null;
+
+    this.playbackRate = this._loadStoredNumber('playerPlaybackRate', 1);
+    this.preferredQualityLabel = this._loadStoredString('playerQualityLabel', null);
+  }
+
+  _loadStoredNumber(key, fallback) {
+    try {
+      const n = parseFloat(localStorage.getItem(key));
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    } catch (e) { return fallback; }
+  }
+  _loadStoredString(key, fallback) {
+    try {
+      const s = localStorage.getItem(key);
+      return s || fallback;
+    } catch (e) { return fallback; }
   }
 
   setupEventListeners() {
@@ -143,6 +166,33 @@ class VideoPlayer {
     // Triggered by the native <video> fullscreen button or the `f` keyboard shortcut.
     document.addEventListener('fullscreenchange', () => this._syncFullscreenState());
     document.addEventListener('webkitfullscreenchange', () => this._syncFullscreenState());
+
+    // Playback speed menu
+    if (this.speedBtn) {
+      this.speedBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._toggleSpeedMenu();
+      });
+    }
+    if (this.speedMenu) {
+      this.speedMenu.addEventListener('click', (e) => e.stopPropagation());
+    }
+    document.addEventListener('click', () => this._closeSpeedMenu());
+
+    // Picture-in-picture
+    if (this.pipBtn) {
+      this.pipBtn.addEventListener('click', () => this.togglePictureInPicture());
+    }
+
+    // Keyboard shortcuts help overlay
+    if (this.shortcutsHelpClose) {
+      this.shortcutsHelpClose.addEventListener('click', () => this._hideShortcutsHelp());
+    }
+    if (this.shortcutsHelp) {
+      this.shortcutsHelp.addEventListener('click', (e) => {
+        if (e.target === this.shortcutsHelp) this._hideShortcutsHelp();
+      });
+    }
   }
 
   /**
@@ -192,6 +242,116 @@ class VideoPlayer {
     }
   }
 
+  // ========================================
+  // Picture-in-Picture
+  // ========================================
+
+  async togglePictureInPicture() {
+    const video = this.videoWrapper?.querySelector('video');
+    if (!video || !document.pictureInPictureEnabled || video.disablePictureInPicture) {
+      this.toast.show('Picture-in-picture is not available', 'info');
+      return;
+    }
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await video.requestPictureInPicture();
+      }
+    } catch (e) {
+      console.warn('[player] PiP toggle failed:', e?.message);
+    }
+  }
+
+  // ========================================
+  // Playback Speed
+  // ========================================
+
+  _applyPlaybackRate(videoEl) {
+    if (!videoEl) return;
+    try { videoEl.playbackRate = this.playbackRate || 1; } catch (e) {}
+    if (this.speedLabel) {
+      this.speedLabel.textContent = this._formatRateLabel(this.playbackRate || 1);
+    }
+  }
+
+  _formatRateLabel(rate) {
+    if (Math.abs(rate - 1) < 0.001) return '1x';
+    // Trim trailing zeros: 1.25x, 1.5x, 0.75x
+    return `${parseFloat(rate.toFixed(2))}x`;
+  }
+
+  setPlaybackRate(rate) {
+    this.playbackRate = rate;
+    try { localStorage.setItem('playerPlaybackRate', String(rate)); } catch (e) {}
+    const video = this.videoWrapper?.querySelector('video');
+    this._applyPlaybackRate(video);
+    this.ui.showShortcutIndicator(`Speed ${this._formatRateLabel(rate)}`);
+    this._renderSpeedMenu();
+  }
+
+  _toggleSpeedMenu() {
+    if (!this.speedMenu) return;
+    const opening = !this.speedMenu.classList.contains('open');
+    if (opening) this._renderSpeedMenu();
+    this.speedMenu.classList.toggle('open', opening);
+  }
+  _closeSpeedMenu() {
+    if (this.speedMenu) this.speedMenu.classList.remove('open');
+  }
+
+  _renderSpeedMenu() {
+    if (!this.speedMenu) return;
+    const steps = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+    this.speedMenu.innerHTML = steps.map(s => {
+      const active = Math.abs(s - this.playbackRate) < 0.001;
+      const label = s === 1 ? 'Normal' : this._formatRateLabel(s);
+      return `<button class="quality-option ${active ? 'active' : ''}" data-rate="${s}">
+        <span>${label}</span>
+      </button>`;
+    }).join('');
+    this.speedMenu.querySelectorAll('[data-rate]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._closeSpeedMenu();
+        this.setPlaybackRate(parseFloat(btn.dataset.rate));
+      });
+    });
+  }
+
+  // ========================================
+  // Buffering Indicator (mid-playback only)
+  // ========================================
+
+  _showBuffering() {
+    if (!this.bufferingIndicator) return;
+    // Don't show a buffering spinner on top of the initial-load spinner.
+    if (this.playerLoader && this.playerLoader.style.display !== 'none') return;
+    this.bufferingIndicator.classList.add('visible');
+  }
+  _hideBuffering() {
+    if (this.bufferingIndicator) this.bufferingIndicator.classList.remove('visible');
+  }
+
+  // ========================================
+  // Keyboard Shortcuts Help
+  // ========================================
+
+  _toggleShortcutsHelp() {
+    if (!this.shortcutsHelp) return;
+    if (this.shortcutsHelp.hidden) this._showShortcutsHelp();
+    else this._hideShortcutsHelp();
+  }
+  _showShortcutsHelp() {
+    if (!this.shortcutsHelp) return;
+    this.shortcutsHelp.hidden = false;
+    requestAnimationFrame(() => this.shortcutsHelp.classList.add('visible'));
+  }
+  _hideShortcutsHelp() {
+    if (!this.shortcutsHelp) return;
+    this.shortcutsHelp.classList.remove('visible');
+    setTimeout(() => { if (this.shortcutsHelp) this.shortcutsHelp.hidden = true; }, 180);
+  }
+
   _promoteFullscreenToCinema() {
     if (this._promotingFullscreen) return;
     const target = this.playerCinema;
@@ -216,6 +376,22 @@ class VideoPlayer {
   // ========================================
 
   handleKeyboard(e) {
+    // Global shortcuts that should fire regardless of focus target.
+    if (e.key === 'Escape' && this.shortcutsHelp && !this.shortcutsHelp.hidden) {
+      e.preventDefault();
+      this._hideShortcutsHelp();
+      return;
+    }
+    if (e.key === '?') {
+      // Only intercept when not typing into a text input.
+      const tag = e.target.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+        e.preventDefault();
+        this._toggleShortcutsHelp();
+        return;
+      }
+    }
+
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
 
     const video = this.videoWrapper?.querySelector('video');
@@ -295,7 +471,35 @@ class VideoPlayer {
           this.playPreviousEpisode();
         }
         break;
+      case 'i':
+        e.preventDefault();
+        this.togglePictureInPicture();
+        break;
+      case '>':
+      case '.':
+        if (!video) return;
+        if (e.key === '>' || e.shiftKey) {
+          e.preventDefault();
+          this._bumpPlaybackRate(+1);
+        }
+        break;
+      case '<':
+      case ',':
+        if (!video) return;
+        if (e.key === '<' || e.shiftKey) {
+          e.preventDefault();
+          this._bumpPlaybackRate(-1);
+        }
+        break;
     }
+  }
+
+  _bumpPlaybackRate(direction) {
+    const steps = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+    const currentIdx = steps.findIndex(s => Math.abs(s - this.playbackRate) < 0.001);
+    const safeIdx = currentIdx === -1 ? steps.indexOf(1) : currentIdx;
+    const nextIdx = Math.max(0, Math.min(steps.length - 1, safeIdx + direction));
+    this.setPlaybackRate(steps[nextIdx]);
   }
 
   // ========================================
@@ -349,6 +553,12 @@ class VideoPlayer {
             && this.trackIndex < deduplicatedFiles.length)
           ? this.trackIndex : 0;
         initialFile = deduplicatedFiles[startIndex]?.name || null;
+      } else if (this.preferredQualityLabel) {
+        // Single-video case: honor the user's last picked quality so they
+        // don't have to re-select 1080p on every new video.
+        const ranked = allFiles.filter(f => (f.name || '').toLowerCase().endsWith('.mp4'));
+        const match = ranked.find(f => this.ui.getQualityLabel(f.name) === this.preferredQualityLabel);
+        if (match) initialFile = match.name;
       }
 
       // Load and play
@@ -582,11 +792,57 @@ class VideoPlayer {
   setupVideoListeners(videoEl) {
     if (!videoEl) return;
 
+    // Always re-apply the persisted playback rate when (re)attaching to a
+    // <video>. The element is reused across episode changes, so the rate
+    // survives — but a fresh page load needs to restore it from storage.
+    this._applyPlaybackRate(videoEl);
+    // Show / hide the PiP button based on browser support, evaluated per
+    // element to handle cross-origin or capability changes.
+    if (this.pipBtn) {
+      this.pipBtn.style.display = (document.pictureInPictureEnabled && !videoEl.disablePictureInPicture) ? '' : 'none';
+    }
+
     // Reusing the <video> element across track changes means this gets
     // called multiple times against the same node. Bail early on the
     // second+ call so we don't stack pause/ended/volume listeners.
     if (videoEl.dataset.afcListenersAttached === '1') return;
     videoEl.dataset.afcListenersAttached = '1';
+
+    // Click-to-toggle-play. Native <video controls> doesn't do this on
+    // desktop, but every user trained on YouTube expects it. Filter out
+    // clicks on the native controls bar (bottom ~40px) so we don't
+    // intercept the user's seek/volume drags.
+    videoEl.addEventListener('click', (e) => {
+      const rect = videoEl.getBoundingClientRect();
+      const distFromBottom = rect.bottom - e.clientY;
+      if (distFromBottom < 50) return; // native controls area
+      if (videoEl.paused) {
+        videoEl.play().catch(() => {});
+      } else {
+        videoEl.pause();
+      }
+    });
+
+    // Double-click anywhere on the video toggles fullscreen.
+    videoEl.addEventListener('dblclick', (e) => {
+      const rect = videoEl.getBoundingClientRect();
+      const distFromBottom = rect.bottom - e.clientY;
+      if (distFromBottom < 50) return;
+      e.preventDefault();
+      this.toggleFullscreen();
+    });
+
+    // Buffering indicator — mid-playback stalls only. The initial-load
+    // spinner is handled separately by showLoader/hideLoader.
+    videoEl.addEventListener('waiting', () => this._showBuffering());
+    videoEl.addEventListener('stalled', () => this._showBuffering());
+    videoEl.addEventListener('playing', () => this._hideBuffering());
+    videoEl.addEventListener('canplay', () => this._hideBuffering());
+    videoEl.addEventListener('pause', () => this._hideBuffering());
+
+    // Reapply rate after any internal reset (some browsers reset rate on
+    // src change despite element reuse).
+    videoEl.addEventListener('loadedmetadata', () => this._applyPlaybackRate(videoEl));
 
     videoEl.addEventListener('pause', () => {
       if (this.videoId && videoEl.currentTime && videoEl.duration) {
@@ -743,6 +999,16 @@ class VideoPlayer {
     const video = this.videoWrapper?.querySelector('video');
     const currentTime = video?.currentTime || 0;
     const wasPaused = video?.paused;
+
+    // Remember the picked quality label so the next video defaults to
+    // the same tier instead of resetting to "best available".
+    try {
+      const label = this.ui.getQualityLabel(filename);
+      if (label) {
+        this.preferredQualityLabel = label;
+        localStorage.setItem('playerQualityLabel', label);
+      }
+    } catch (e) {}
 
     this.showLoader();
 

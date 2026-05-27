@@ -2248,6 +2248,45 @@ button {
   background-position: center;
 }
 
+/* Hide the legacy pseudo-icon when the new inline SVG is rendered. */
+.no-results:has(.no-results-icon)::before {
+  display: none;
+}
+
+.no-results-icon {
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.no-results-tips {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  text-align: left;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+.no-results-tips li {
+  position: relative;
+  padding-left: 1.25em;
+  line-height: 1.5;
+}
+.no-results-tips li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--color-text-tertiary);
+}
+.no-results-tips a {
+  color: var(--accent-color, var(--color-text-primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .no-results h3,
 .fallback-message h3 {
   font-size: var(--font-size-xl);
