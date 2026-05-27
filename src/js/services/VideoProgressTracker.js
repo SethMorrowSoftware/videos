@@ -37,15 +37,25 @@ export class VideoProgressTracker {
   /**
    * Save progress to localStorage immediately and, when authed, to the
    * server at most once every UPLOAD_INTERVAL_MS.
+   *
+   * The optional `meta` (`{ title, creator }`) is stored alongside the
+   * timestamps so the homepage Continue Watching row can render a card
+   * for the entry without re-fetching Archive.org metadata for every
+   * stale row.
    */
-  saveProgress(videoId, currentTime, duration) {
+  saveProgress(videoId, currentTime, duration, meta = null) {
     if (!videoId || !duration) return;
 
+    const previous = this.progress[videoId] || {};
     this.progress[videoId] = {
       currentTime,
       duration,
       percentage: (currentTime / duration) * 100,
       timestamp: Date.now(),
+      // Preserve previously-captured title/creator unless the caller
+      // supplied a fresher copy.
+      title: (meta && meta.title) || previous.title || null,
+      creator: (meta && meta.creator) || previous.creator || null,
     };
 
     try {
@@ -132,6 +142,20 @@ export class VideoProgressTracker {
         console.warn('[VideoProgressTracker] cleanup failed:', e);
       }
     }
+  }
+
+  /**
+   * Return entries that are partially watched, newest first. The
+   * Continue Watching row uses this to decide which videos to surface
+   * on the homepage. Excludes near-finished items (>= 95%) so finished
+   * videos don't clutter the row.
+   */
+  getResumable({ limit = 12, minPercent = 1, maxPercent = 95 } = {}) {
+    return Object.entries(this.progress)
+      .map(([id, entry]) => ({ id, ...entry }))
+      .filter(e => e && e.duration > 0 && e.percentage > minPercent && e.percentage < maxPercent)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, limit);
   }
 
   clearProgress(videoId) {

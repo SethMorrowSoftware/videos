@@ -1,7 +1,15 @@
 /**
  * Service Worker for Comet Cult Film Club
- * Version: 1.1.0
+ * Version: 1.2.0
  * Features: Offline support, intelligent caching, background sync
+ *
+ * v1.2 changes:
+ *   - Stopped intercepting unknown cross-origin requests. The catch-all
+ *     `handleDynamicRequest` was re-fetching things like the Google Fonts
+ *     stylesheet from inside the SW, which routes through CSP `connect-src`
+ *     and gets blocked (the original <link> fetch only needs `style-src`).
+ *     Now we only respondWith() for things we actually want to cache:
+ *     same-origin app + API, archive.org, and image destinations.
  *
  * v1.1 changes:
  *   - Bumped CACHE_VERSION so old caches get evicted (with the old, broken
@@ -13,7 +21,7 @@
  *   - metadata-batch.php gets cache-first treatment like metadata.php
  */
 
-const CACHE_VERSION = 'ccfc-v3';
+const CACHE_VERSION = 'ccfc-v4';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -133,11 +141,14 @@ self.addEventListener('fetch', event => {
     event.respondWith(handleApiRequest(request));
   } else if (url.origin === location.origin) {
     event.respondWith(handleAppRequest(request));
-  } else if (url.hostname === 'archive.org') {
+  } else if (url.hostname === 'archive.org' || url.hostname.endsWith('.archive.org')) {
     event.respondWith(handleArchiveRequest(request));
-  } else {
-    event.respondWith(handleDynamicRequest(request));
   }
+  // Everything else (Google Fonts CSS, gstatic font files, third-party
+  // analytics, etc.) is left for the browser to fetch directly. Routing
+  // those through the SW would re-issue the request from script context,
+  // which the page CSP `connect-src` blocks even when the original link
+  // / @font-face request is allowed by `style-src` / `font-src`.
 });
 
 /**
@@ -451,40 +462,6 @@ async function handleImageRequest(request) {
         }
       }
     );
-  }
-}
-
-/**
- * Handle other dynamic requests
- */
-async function handleDynamicRequest(request) {
-  try {
-    // Try network first for dynamic content
-    const networkResponse = await fetchWithTimeout(request, 8000);
-    
-    // Cache successful responses
-    if (networkResponse.ok) {
-      const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, await stampCachedAt(networkResponse.clone()))
-           .catch(() => {});
-    }
-
-    return networkResponse;
-  } catch (error) {
-    console.error('[SW] Dynamic request failed:', error);
-    
-    // Try cache as fallback
-    const cachedResponse = await caches.match(request);
-    if (cachedResponse) {
-      console.log('[SW] Serving from cache:', request.url);
-      return cachedResponse;
-    }
-    
-    // Return error response
-    return new Response('Network error', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain' }
-    });
   }
 }
 

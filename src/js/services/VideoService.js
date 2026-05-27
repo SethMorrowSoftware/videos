@@ -148,6 +148,56 @@ export class VideoService {
   }
 
   /**
+   * Pull WebVTT sidecar files out of Archive.org's file list. Browsers
+   * can mount these directly as <track> elements; SRT/ASS/SSA would need
+   * client-side conversion, so we deliberately skip them.
+   *
+   * Language is best-effort: we look for a trailing `.en.vtt`,
+   * `.eng.vtt`, etc., before the extension; otherwise the track is
+   * labeled generically.
+   */
+  getCaptionFiles(metadata) {
+    const files = metadata.files || (metadata.metadata && metadata.metadata.files) || [];
+    if (!files.length) return [];
+
+    const out = [];
+    for (const f of files) {
+      const name = (f.name || '');
+      if (!/\.vtt$/i.test(name)) continue;
+      const fmt = (f.format || '').toLowerCase();
+      if (fmt && fmt.includes('thumbnail')) continue;
+
+      // Try to extract a language code from `foo.en.vtt`, `foo.eng.vtt`.
+      const langMatch = name.match(/\.([a-z]{2,3})\.vtt$/i);
+      const lang = langMatch ? langMatch[1].toLowerCase() : '';
+
+      out.push({
+        name,
+        language: lang || null,
+        label: lang ? this._languageLabel(lang) : (f.title || 'Captions'),
+        size: parseInt(f.size || 0, 10) || 0,
+      });
+    }
+    return out;
+  }
+
+  _languageLabel(code) {
+    const map = {
+      en: 'English', eng: 'English',
+      es: 'Spanish', spa: 'Spanish',
+      fr: 'French', fra: 'French', fre: 'French',
+      de: 'German', deu: 'German', ger: 'German',
+      it: 'Italian', ita: 'Italian',
+      pt: 'Portuguese', por: 'Portuguese',
+      ja: 'Japanese', jpn: 'Japanese',
+      zh: 'Chinese', chi: 'Chinese', zho: 'Chinese',
+      ru: 'Russian', rus: 'Russian',
+      ar: 'Arabic', ara: 'Arabic',
+    };
+    return map[code] || code.toUpperCase();
+  }
+
+  /**
    * Select the best quality video file from available options
    */
   selectBestQuality(files) {
@@ -327,11 +377,35 @@ export class VideoService {
     const wasMuted = videoEl.muted;
     videoEl.removeAttribute('src');
     videoEl.innerHTML = '';
+
+    // Sidecar caption tracks (WebVTT only — browsers don't natively
+    // support SRT). Only set crossOrigin when we actually have caption
+    // files: setting it unconditionally would force CORS on the video
+    // download URL too, and archive.org doesn't ACAO every variant.
+    const captionFiles = this.getCaptionFiles(actual);
+    if (captionFiles.length > 0) {
+      videoEl.crossOrigin = 'anonymous';
+    } else if (videoEl.crossOrigin) {
+      videoEl.removeAttribute('crossorigin');
+    }
+
     const sourceEl = document.createElement('source');
     sourceEl.src = url;
     if (mime) sourceEl.type = mime;
     videoEl.appendChild(sourceEl);
     videoEl.appendChild(document.createTextNode('Your browser does not support the video tag.'));
+
+    for (const cap of captionFiles) {
+      const track = document.createElement('track');
+      track.kind = 'captions';
+      track.srclang = cap.language || 'en';
+      track.label = cap.label || (cap.language ? cap.language.toUpperCase() : 'Captions');
+      track.src = `https://archive.org/download/${id}/${encodeURIComponent(cap.name)}`;
+      // Start hidden — the player toggles `mode = 'showing'` when the
+      // user enables CC, so we never force captions on by default.
+      track.default = false;
+      videoEl.appendChild(track);
+    }
 
     if (!isNewElement) {
       try { videoEl.load(); } catch (e) { /* ignore */ }

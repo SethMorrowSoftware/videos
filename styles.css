@@ -2248,6 +2248,45 @@ button {
   background-position: center;
 }
 
+/* Hide the legacy pseudo-icon when the new inline SVG is rendered. */
+.no-results:has(.no-results-icon)::before {
+  display: none;
+}
+
+.no-results-icon {
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.no-results-tips {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  text-align: left;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+.no-results-tips li {
+  position: relative;
+  padding-left: 1.25em;
+  line-height: 1.5;
+}
+.no-results-tips li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--color-text-tertiary);
+}
+.no-results-tips a {
+  color: var(--accent-color, var(--color-text-primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .no-results h3,
 .fallback-message h3 {
   font-size: var(--font-size-xl);
@@ -3093,4 +3132,62 @@ textarea:focus-visible {
 
 .share-modal-close:hover {
   filter: brightness(1.1);
+}
+/* =========================================================
+   Continue Watching row (homepage)
+   Reuses .recommended-card / .recommended-grid layout, adds
+   the resume progress bar + per-card remove button.
+   ========================================================= */
+.continue-watching-section .recommended-title svg {
+  color: var(--color-accent, var(--brand-color, currentColor));
+}
+
+.continue-watching-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  z-index: 3;
+  pointer-events: none;
+}
+.continue-watching-progress span {
+  display: block;
+  height: 100%;
+  background: var(--brand-color, #ff0000);
+  border-radius: 0 2px 2px 0;
+}
+
+.continue-watching-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  z-index: 4;
+  padding: 0;
+}
+.continue-watching-card:hover .continue-watching-remove,
+.continue-watching-card:focus-within .continue-watching-remove {
+  opacity: 1;
+  transform: scale(1);
+}
+.continue-watching-remove:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+.continue-watching-remove:focus-visible {
+  outline: 2px solid var(--accent-color, #fff);
+  outline-offset: 2px;
 }

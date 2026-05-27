@@ -86,12 +86,27 @@ export class UIFeedback {
     const { results } = this.elements;
     if (!results) return;
 
+    const hasQuery = !!(query && query.trim());
+    const heading = hasQuery
+      ? `No results for "${escapeHtml(query)}"`
+      : 'Nothing here yet';
+    const subline = hasQuery
+      ? `We couldn't find any matches in ${escapeHtml(collectionName)}.`
+      : `This collection is empty.`;
+
     results.innerHTML = `
       <div class="no-results">
-        <h3>No results found</h3>
-        <p>Try different search terms or a different collection.</p>
-        <p><strong>Search:</strong> "${escapeHtml(query)}"</p>
-        <p><strong>Collection:</strong> ${escapeHtml(collectionName)}</p>
+        <svg class="no-results-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+        <h3>${heading}</h3>
+        <p>${subline}</p>
+        <ul class="no-results-tips">
+          <li>Check the spelling, or try a shorter or more general phrase.</li>
+          <li>Switch the collection above to <strong>All Videos</strong>.</li>
+          <li>Browse the featured rows on the <a href="index.php">home page</a>.</li>
+        </ul>
       </div>`;
   }
 
