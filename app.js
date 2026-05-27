@@ -30,6 +30,7 @@ import { BackgroundCacheService } from './src/js/services/BackgroundCacheService
 // Import components
 import { SearchSuggestions } from './src/js/components/SearchSuggestions.js';
 import { RecommendedManager } from './src/js/components/RecommendedManager.js';
+import { ContinueWatchingManager } from './src/js/components/ContinueWatchingManager.js';
 import { FeaturedSectionsManager } from './src/js/components/FeaturedSectionsManager.js';
 import { Toast } from './src/js/components/Toast.js';
 import { LoadingSkeleton } from './src/js/components/LoadingSkeleton.js';
@@ -85,7 +86,16 @@ class ArchiveVideoSearch {
     // server-side prefetch the sections render almost instantly anyway.
     this.recommendedManager = new RecommendedManager(this);
     this.featuredSectionsManager = new FeaturedSectionsManager(this);
+    this.continueWatchingManager = new ContinueWatchingManager(this, this.progressTracker);
     window.featuredSectionsManager = this.featuredSectionsManager;
+
+    // Continue Watching is purely local-storage-driven, so it can render
+    // synchronously before the network-backed sections.
+    try {
+      this.continueWatchingManager.init();
+    } catch (err) {
+      console.error('Failed to init Continue Watching:', err);
+    }
 
     this.recommendedManager.init().catch(err => {
       console.error('Failed to init recommended:', err);
@@ -833,6 +843,10 @@ class ArchiveVideoSearch {
 
     if (this.recommendedManager && !this.recommendedManager.isHidden) {
       this.recommendedManager.show();
+    }
+    if (this.continueWatchingManager) {
+      // Re-read localStorage in case the player page wrote new progress.
+      this.continueWatchingManager.refresh();
     }
 
     this.performSearch();

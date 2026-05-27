@@ -95,6 +95,7 @@ class VideoPlayer {
     this.playerCinema = document.getElementById('playerCinema');
     this.bufferingIndicator = document.getElementById('bufferingIndicator');
     this.pipBtn = document.getElementById('pipBtn');
+    this.captionsBtn = document.getElementById('captionsBtn');
     this.speedBtn = document.getElementById('speedBtn');
     this.speedMenu = document.getElementById('speedMenu');
     this.speedLabel = document.getElementById('speedLabel');
@@ -104,6 +105,7 @@ class VideoPlayer {
 
     this.playbackRate = this._loadStoredNumber('playerPlaybackRate', 1);
     this.preferredQualityLabel = this._loadStoredString('playerQualityLabel', null);
+    this.captionsEnabled = this._loadStoredString('playerCaptionsOn', '') === '1';
   }
 
   _loadStoredNumber(key, fallback) {
@@ -184,6 +186,11 @@ class VideoPlayer {
       this.pipBtn.addEventListener('click', () => this.togglePictureInPicture());
     }
 
+    // Captions toggle
+    if (this.captionsBtn) {
+      this.captionsBtn.addEventListener('click', () => this.toggleCaptions());
+    }
+
     // Keyboard shortcuts help overlay
     if (this.shortcutsHelpClose) {
       this.shortcutsHelpClose.addEventListener('click', () => this._hideShortcutsHelp());
@@ -246,6 +253,15 @@ class VideoPlayer {
   // Picture-in-Picture
   // ========================================
 
+  _currentVideoMeta() {
+    const meta = this.metadata && (this.metadata.metadata || this.metadata);
+    if (!meta) return null;
+    return {
+      title: extractValue(meta.title) || null,
+      creator: extractValue(meta.creator) || null,
+    };
+  }
+
   async togglePictureInPicture() {
     const video = this.videoWrapper?.querySelector('video');
     if (!video || !document.pictureInPictureEnabled || video.disablePictureInPicture) {
@@ -260,6 +276,50 @@ class VideoPlayer {
       }
     } catch (e) {
       console.warn('[player] PiP toggle failed:', e?.message);
+    }
+  }
+
+  // ========================================
+  // Captions / Subtitles
+  // ========================================
+
+  toggleCaptions() {
+    const video = this.videoWrapper?.querySelector('video');
+    if (!video || !video.textTracks || video.textTracks.length === 0) {
+      this.toast.show('No captions available for this video', 'info');
+      return;
+    }
+    this.captionsEnabled = !this.captionsEnabled;
+    try { localStorage.setItem('playerCaptionsOn', this.captionsEnabled ? '1' : '0'); } catch (e) {}
+    this._applyCaptionState(video);
+    this.ui.showShortcutIndicator(this.captionsEnabled ? 'Captions on' : 'Captions off');
+  }
+
+  /**
+   * Apply the persisted captions preference to whatever text tracks are
+   * currently mounted on the <video>. Called on every (re)attach so a
+   * fresh element after navigation respects the user's last choice.
+   */
+  _applyCaptionState(videoEl) {
+    if (!videoEl || !videoEl.textTracks) return;
+    const tracks = videoEl.textTracks;
+    const hasAny = tracks.length > 0;
+
+    if (this.captionsBtn) {
+      this.captionsBtn.style.display = hasAny ? '' : 'none';
+      this.captionsBtn.classList.toggle('active', !!this.captionsEnabled && hasAny);
+      this.captionsBtn.setAttribute('aria-pressed', String(!!this.captionsEnabled && hasAny));
+    }
+
+    if (!hasAny) return;
+    // Prefer English when available, otherwise the first track.
+    let chosen = 0;
+    for (let i = 0; i < tracks.length; i++) {
+      const lang = (tracks[i].language || '').toLowerCase();
+      if (lang.startsWith('en')) { chosen = i; break; }
+    }
+    for (let i = 0; i < tracks.length; i++) {
+      tracks[i].mode = (this.captionsEnabled && i === chosen) ? 'showing' : 'disabled';
     }
   }
 
@@ -474,6 +534,10 @@ class VideoPlayer {
       case 'i':
         e.preventDefault();
         this.togglePictureInPicture();
+        break;
+      case 'c':
+        e.preventDefault();
+        this.toggleCaptions();
         break;
       case '>':
       case '.':
@@ -796,6 +860,7 @@ class VideoPlayer {
     // <video>. The element is reused across episode changes, so the rate
     // survives — but a fresh page load needs to restore it from storage.
     this._applyPlaybackRate(videoEl);
+    this._applyCaptionState(videoEl);
     // Show / hide the PiP button based on browser support, evaluated per
     // element to handle cross-origin or capability changes.
     if (this.pipBtn) {
@@ -841,12 +906,18 @@ class VideoPlayer {
     videoEl.addEventListener('pause', () => this._hideBuffering());
 
     // Reapply rate after any internal reset (some browsers reset rate on
-    // src change despite element reuse).
-    videoEl.addEventListener('loadedmetadata', () => this._applyPlaybackRate(videoEl));
+    // src change despite element reuse). Caption tracks are attached
+    // synchronously by VideoService but the textTracks list isn't fully
+    // populated until the browser has parsed the <track> elements, so
+    // re-sync captions on metadata load too.
+    videoEl.addEventListener('loadedmetadata', () => {
+      this._applyPlaybackRate(videoEl);
+      this._applyCaptionState(videoEl);
+    });
 
     videoEl.addEventListener('pause', () => {
       if (this.videoId && videoEl.currentTime && videoEl.duration) {
-        this.progressTracker.saveProgress(this.videoId, videoEl.currentTime, videoEl.duration);
+        this.progressTracker.saveProgress(this.videoId, videoEl.currentTime, videoEl.duration, this._currentVideoMeta());
         const idx = this.playlistService.getCurrentIndex();
         if (this.playlist.isVisible() && this.playlistService.getPlaylist()) {
           this.playlist.saveTrackProgress(idx, videoEl.currentTime, videoEl.duration);
@@ -866,7 +937,7 @@ class VideoPlayer {
 
     videoEl.addEventListener('ended', () => {
       if (this.videoId && videoEl.duration) {
-        this.progressTracker.saveProgress(this.videoId, videoEl.duration, videoEl.duration);
+        this.progressTracker.saveProgress(this.videoId, videoEl.duration, videoEl.duration, this._currentVideoMeta());
       }
       const idx = this.playlistService.getCurrentIndex();
       if (this.playlist.isVisible() && this.playlistService.getPlaylist()) {

@@ -351,6 +351,13 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
             </button>
             <div id="speedMenu" class="quality-menu"></div>
           </div>
+          <button id="captionsBtn" class="pctl-btn captions-btn" title="Subtitles / captions (c)" aria-label="Subtitles / captions" aria-pressed="false" style="display:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="5" width="20" height="14" rx="2"/>
+              <path d="M7 15h3M14 15h3M7 11h3M14 11h3"/>
+            </svg>
+            <span class="captions-underline" aria-hidden="true"></span>
+          </button>
           <button id="pipBtn" class="pctl-btn" title="Picture in picture (i)" aria-label="Picture in picture" style="display:none;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="2" y="4" width="20" height="14" rx="2"/>
@@ -495,6 +502,7 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
         <div class="shortcut-row"><kbd>F</kbd><span>Fullscreen</span></div>
         <div class="shortcut-row"><kbd>T</kbd><span>Theater mode</span></div>
         <div class="shortcut-row"><kbd>I</kbd><span>Picture in picture</span></div>
+        <div class="shortcut-row"><kbd>C</kbd><span>Subtitles / captions</span></div>
         <div class="shortcut-row"><kbd>M</kbd><span>Mute / unmute</span></div>
         <div class="shortcut-row"><kbd>J</kbd><span>Back 10s</span></div>
         <div class="shortcut-row"><kbd>L</kbd><span>Forward 10s</span></div>

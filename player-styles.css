@@ -2038,3 +2038,30 @@
   font-weight: 600;
   line-height: 1;
 }
+
+/* =========================================================
+   Captions / CC button
+   ========================================================= */
+.captions-btn {
+  position: relative;
+}
+.captions-btn .captions-underline {
+  display: block;
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 6px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 2px;
+  opacity: 0;
+  transform: scaleX(0.5);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.captions-btn.active {
+  color: var(--accent-color, #fff);
+}
+.captions-btn.active .captions-underline {
+  opacity: 1;
+  transform: scaleX(1);
+}

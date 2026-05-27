@@ -545,6 +545,21 @@ if (!empty($recommendations_config['enabled']) && !empty($recommendations_config
     </aside>
 
     <section class="content-area">
+      <!-- Continue Watching (resumable videos, populated client-side) -->
+      <section id="continueWatchingSection" class="recommended-section continue-watching-section" style="display: none;">
+        <div class="recommended-header">
+          <h2 class="recommended-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            Continue Watching
+          </h2>
+          <button id="clearContinueWatching" class="btn btn-ghost" aria-label="Clear continue watching">Clear all</button>
+        </div>
+        <div id="continueWatchingGrid" class="recommended-grid"></div>
+      </section>
+
       <!-- Recommended Section (Admin Picks) -->
       <section id="recommendedSection" class="recommended-section" style="display: none;">
         <div class="recommended-header">
