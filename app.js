@@ -727,12 +727,18 @@ class ArchiveVideoSearch {
     document.body.appendChild(overlay);
     input.focus();
     input.select();
-    const close = () => overlay.remove();
+    // close() always tears down BOTH the overlay and the document-level
+    // keydown listener — otherwise dismissing via the X button or a
+    // backdrop click would leak the Escape handler for the rest of the
+    // session.
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const close = () => {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+    };
     overlay.querySelector('.share-modal-close').onclick = close;
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
-    document.addEventListener('keydown', function onKey(e) {
-      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); close(); }
-    });
+    document.addEventListener('keydown', onKey);
   }
 
   // ========================================

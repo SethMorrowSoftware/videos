@@ -394,12 +394,24 @@ export class PlayerPlaylist {
       });
     });
 
-    // Scroll active into view (only if not filtering)
+    // Scroll active into view (only if not filtering). We intentionally
+    // avoid Element.scrollIntoView() here — it walks every scrollable
+    // ancestor, and on mobile the playlist sits below the video and
+    // description, so the browser ends up scrolling the entire page off
+    // the player. Adjust the sidebar's own scrollTop instead.
     if (!q) {
       requestAnimationFrame(() => {
         const activeItem = this.itemsEl.querySelector('.playlist-item.active');
-        if (activeItem && typeof activeItem.scrollIntoView === 'function') {
-          activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (!activeItem) return;
+        const container = this.itemsEl;
+        const itemRect = activeItem.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const above = itemRect.top - containerRect.top;
+        const below = itemRect.bottom - containerRect.bottom;
+        if (above < 0) {
+          container.scrollTop += above;
+        } else if (below > 0) {
+          container.scrollTop += below;
         }
       });
     }

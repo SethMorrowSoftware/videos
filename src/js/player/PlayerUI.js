@@ -209,6 +209,10 @@ export class PlayerUI {
   showResumePrompt(timeStr, onResume) {
     if (!this.resumePrompt || !this.resumeText || !this.resumeBtn) return;
 
+    // Clear any in-flight auto-hide so a second prompt isn't hidden by
+    // the previous prompt's timer.
+    clearTimeout(this._resumeAutoHide);
+
     this.resumeText.textContent = `Resume from ${timeStr}?`;
     this.resumePrompt.style.display = '';
 

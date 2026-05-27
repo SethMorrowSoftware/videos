@@ -965,16 +965,30 @@ class VideoPlayer {
   showShareFallback(url) {
     const modal = document.createElement('div');
     modal.className = 'share-modal-overlay';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Share link');
     modal.innerHTML = `
       <div class="share-modal">
         <h3>Share this video</h3>
-        <input value="${url}" readonly class="share-modal-input" />
-        <button class="share-modal-close">Close</button>
+        <input type="text" readonly class="share-modal-input" />
+        <button type="button" class="share-modal-close">Close</button>
       </div>`;
+    const input = modal.querySelector('input');
+    input.value = url;
     document.body.appendChild(modal);
-    modal.querySelector('input').select();
-    modal.querySelector('.share-modal-close').onclick = () => modal.remove();
-    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    input.focus();
+    input.select();
+    // See app.js showShareFallback — close() must tear down the keydown
+    // listener no matter how the modal is dismissed.
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const close = () => {
+      document.removeEventListener('keydown', onKey);
+      modal.remove();
+    };
+    modal.querySelector('.share-modal-close').onclick = close;
+    modal.onclick = (e) => { if (e.target === modal) close(); };
+    document.addEventListener('keydown', onKey);
   }
 
   // ========================================
