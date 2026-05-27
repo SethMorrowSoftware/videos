@@ -176,6 +176,39 @@ class VideoPlayer {
   _syncFullscreenState() {
     const fs = document.fullscreenElement || document.webkitFullscreenElement;
     document.body.classList.toggle('player-is-fullscreen', !!fs);
+
+    // If the user entered fullscreen via the <video>'s native button
+    // (common on mobile/touch), fullscreen lives on the bare <video> and
+    // NOT on the cinema container. That breaks two things:
+    //   1) The Up Next overlay + shortcut indicator are siblings of the
+    //      video, so they're invisible in fullscreen.
+    //   2) Swapping the <source> for the next episode forces the browser
+    //      to drop fullscreen, so auto-advance kicks the user back out.
+    // Promote fullscreen to the cinema container — browsers allow
+    // re-requesting fullscreen on a different element while already in
+    // fullscreen, and the transition is seamless.
+    if (fs && this.playerCinema && fs !== this.playerCinema) {
+      this._promoteFullscreenToCinema();
+    }
+  }
+
+  _promoteFullscreenToCinema() {
+    if (this._promotingFullscreen) return;
+    const target = this.playerCinema;
+    if (!target) return;
+    const req = target.requestFullscreen || target.webkitRequestFullscreen;
+    if (!req) return;
+    this._promotingFullscreen = true;
+    try {
+      const result = req.call(target);
+      if (result && typeof result.then === 'function') {
+        result.finally(() => { this._promotingFullscreen = false; });
+      } else {
+        this._promotingFullscreen = false;
+      }
+    } catch (e) {
+      this._promotingFullscreen = false;
+    }
   }
 
   // ========================================
