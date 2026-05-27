@@ -1,5 +1,5 @@
 {
-  "_comment": "Drop PNG icons (icon-192.png, icon-512.png, icon-512-maskable.png) plus favicon.ico and apple-touch-icon.png into the install root to enable PWA install with branded icons. Until those exist, the inline SVG favicon in <head> handles browser tabs.",
+  "_comment": "Only the inline SVG icon below is referenced — it's bundled in the manifest itself so we don't 404 on a missing icon-192.png / icon-512.png. To enable PWA install with proper branded icons, drop icon-192.png, icon-512.png, and icon-512-maskable.png into the install root and add their entries back to the `icons` array.",
   "name": "Archive Film Club",
   "short_name": "Film Club",
   "description": "Discover and watch classic films from Archive.org",
@@ -11,22 +11,10 @@
   "theme_color": "#0a0a0b",
   "icons": [
     {
-      "src": "icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgMjQgMjQiPjxyZWN0IHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgZmlsbD0iIzBhMGEwYiIvPjxwYXRoIGQ9Ik00IDhMNCAxNkM0IDE3LjEgNC45IDE4IDYgMThIMThDMTkuMSAxOCAyMCAxNy4xIDIwIDE2VjhDMjAgNi45IDE5LjEgNiAxOCA2SDZDNC45IDYgNCA2LjkgNCA4WiIgc3Ryb2tlPSIjZmYwMDAwIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiLz48cGF0aCBkPSJNMTAgMTJIMTRNMTIgMTBWMTQiIHN0cm9rZT0iI2ZmMDAwMCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-512-maskable.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ]
 }
