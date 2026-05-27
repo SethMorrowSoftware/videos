@@ -18,6 +18,24 @@
                 </div>
 
                 <div class="nav-section">
+                    <div class="nav-section-title">Community</div>
+                    <button class="nav-item" data-panel="metrics">
+                        <span class="nav-item-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+                        Metrics
+                    </button>
+                    <button class="nav-item" data-panel="users">
+                        <span class="nav-item-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span>
+                        Users
+                        <span class="nav-item-badge" id="navUserCount">—</span>
+                    </button>
+                    <button class="nav-item" data-panel="comments-mod">
+                        <span class="nav-item-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></span>
+                        Comments
+                        <span class="nav-item-badge" id="navReportsCount" style="display:none;">0</span>
+                    </button>
+                </div>
+
+                <div class="nav-section">
                     <div class="nav-section-title">Content</div>
                     <button class="nav-item" data-panel="staff-picks">
                         <span class="nav-item-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>

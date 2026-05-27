@@ -132,12 +132,18 @@
             // Update title
             const titles = {
                 'dashboard': 'Dashboard',
+                'metrics': 'Metrics',
+                'users': 'Users',
+                'comments-mod': 'Comments',
                 'staff-picks': 'Staff Picks',
                 'site-settings': 'Site Settings',
                 'appearance': 'Appearance',
                 'display': 'Display Options',
                 'sections': 'Featured Sections'
             };
+            // Notify other modules (admin-metrics.js) that a panel was opened
+            // so they can lazy-load their data on first reveal.
+            document.dispatchEvent(new CustomEvent('admin:panel-shown', { detail: panel }));
             document.getElementById('panelTitle').textContent = titles[panel] || panel;
             currentPanel = panel;
             updateSaveButtonVisibility();

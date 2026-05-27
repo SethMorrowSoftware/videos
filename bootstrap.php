@@ -97,6 +97,7 @@ spl_autoload_register(function ($class) {
         __DIR__ . '/services/User/',
         __DIR__ . '/services/Collection/',
         __DIR__ . '/services/Comments/',
+        __DIR__ . '/services/Admin/',
         __DIR__ . '/db/',
         __DIR__ . '/cache/',
         __DIR__ . '/admin/controllers/',
