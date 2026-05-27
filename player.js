@@ -12,6 +12,7 @@ import { AuthNav } from './src/js/components/AuthNav.js';
 import { CollectionPicker } from './src/js/components/CollectionPicker.js';
 import { PlayerUI } from './src/js/player/PlayerUI.js';
 import { PlayerPlaylist } from './src/js/player/PlayerPlaylist.js';
+import { PlayerComments } from './src/js/player/PlayerComments.js';
 
 // Mount auth nav early
 AuthNav.mount();
@@ -33,6 +34,9 @@ class VideoPlayer {
     this.toast = new Toast();
     this.ui = new PlayerUI();
     this.playlist = new PlayerPlaylist(this.videoService, this.playlistService);
+    this.comments = new PlayerComments({ toast: this.toast });
+    const commentsEl = document.getElementById('commentsSection');
+    if (commentsEl) this.comments.mount(commentsEl);
 
     this.siteSettings = this.loadSiteSettings();
     this.videoId = null;
@@ -597,6 +601,11 @@ class VideoPlayer {
 
       const meta = metadata.metadata || metadata;
       this.updateVideoInfo(meta);
+
+      // Kick off comments load in the background — never blocks playback.
+      if (this.comments && this.videoId) {
+        this.comments.load(this.videoId).catch(() => {});
+      }
 
       // Pre-compute the playable + deduplicated file list BEFORE we kick
       // off playback, so multi-episode items load the requested track
