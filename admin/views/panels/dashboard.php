@@ -18,49 +18,78 @@
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-card-header">
-                                <span class="stat-card-label">Staff Picks</span>
+                                <span class="stat-card-label">Members</span>
                                 <div class="stat-card-icon blue">
-                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
                                 </div>
                             </div>
-                            <div class="stat-card-value"><?= count($current_recommendations) ?></div>
-                            <div class="stat-card-desc">Curated videos</div>
+                            <div class="stat-card-value" id="dashStatMembers">—</div>
+                            <div class="stat-card-desc"><span id="dashStatMembersNew">…</span> new this week</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-card-header">
-                                <span class="stat-card-label">Sections</span>
-                                <div class="stat-card-icon purple">
-                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-                                </div>
-                            </div>
-                            <div class="stat-card-value"><?= count($featured_sections) ?></div>
-                            <div class="stat-card-desc">Featured sections</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-card-header">
-                                <span class="stat-card-label">Theme</span>
+                                <span class="stat-card-label">Active (7 days)</span>
                                 <div class="stat-card-icon green">
-                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10c.55 0 1-.45 1-1v-.53a1 1 0 011-1h1.03c2.76 0 5-2.24 5-5 0-4.97-4.49-8.47-8.03-8.47z"/></svg>
+                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                                 </div>
                             </div>
-                            <div class="stat-card-value" style="font-size: 22px; text-transform: capitalize;"><?= htmlspecialchars($site_settings['defaultTheme'] ?? 'Dark') ?></div>
-                            <div class="stat-card-desc">Active theme</div>
+                            <div class="stat-card-value" id="dashStatActive">—</div>
+                            <div class="stat-card-desc"><span id="dashStatActive24h">…</span> in last 24h</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-card-header">
-                                <span class="stat-card-label">Storage</span>
-                                <div class="stat-card-icon orange">
-                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                                <span class="stat-card-label">Comments (7 days)</span>
+                                <div class="stat-card-icon purple">
+                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
                                 </div>
                             </div>
-                            <div class="stat-card-value" style="font-size: 22px;"><?= $useDatabase ? 'MySQL' : 'JSON' ?></div>
-                            <div class="stat-card-desc"><?= $useDatabase ? 'Database connected' : 'File-based storage' ?></div>
+                            <div class="stat-card-value" id="dashStatComments">—</div>
+                            <div class="stat-card-desc">
+                                <span id="dashStatReportsPending">…</span> reports pending
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-card-header">
+                                <span class="stat-card-label">Video views (7 days)</span>
+                                <div class="stat-card-icon orange">
+                                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                                </div>
+                            </div>
+                            <div class="stat-card-value" id="dashStatViews">—</div>
+                            <div class="stat-card-desc"><span id="dashStatViews24h">…</span> in last 24h</div>
                         </div>
                     </div>
 
                     <div class="quick-actions">
-                        <a class="quick-action" onclick="switchPanel('staff-picks'); return false;" href="#">
+                        <a class="quick-action" onclick="switchPanel('metrics'); return false;" href="#">
                             <div class="quick-action-icon" style="background: var(--accent-soft); color: var(--accent);">
+                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                            </div>
+                            <div>
+                                <div class="quick-action-text">View Metrics</div>
+                                <div class="quick-action-desc">Charts and top lists</div>
+                            </div>
+                        </a>
+                        <a class="quick-action" onclick="switchPanel('users'); return false;" href="#">
+                            <div class="quick-action-icon" style="background: var(--success-bg); color: var(--success);">
+                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                            </div>
+                            <div>
+                                <div class="quick-action-text">Manage Users</div>
+                                <div class="quick-action-desc">Roles, signups, activity</div>
+                            </div>
+                        </a>
+                        <a class="quick-action" onclick="switchPanel('comments-mod'); return false;" href="#">
+                            <div class="quick-action-icon" style="background: var(--purple-soft); color: var(--purple);">
+                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+                            </div>
+                            <div>
+                                <div class="quick-action-text">Moderate Comments</div>
+                                <div class="quick-action-desc">Reports, hidden, recent</div>
+                            </div>
+                        </a>
+                        <a class="quick-action" onclick="switchPanel('staff-picks'); return false;" href="#">
+                            <div class="quick-action-icon" style="background: var(--warning-bg); color: var(--warning);">
                                 <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                             </div>
                             <div>
@@ -68,33 +97,29 @@
                                 <div class="quick-action-desc">Curate featured videos</div>
                             </div>
                         </a>
-                        <a class="quick-action" onclick="switchPanel('sections'); return false;" href="#">
-                            <div class="quick-action-icon" style="background: var(--purple-soft); color: var(--purple);">
-                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                    </div>
+
+                    <div class="dashboard-feeds">
+                        <div class="info-card">
+                            <div class="info-card-title">
+                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                                Recent signups
+                                <a href="#" onclick="switchPanel('users'); return false;" class="dashboard-feed-link">View all</a>
                             </div>
-                            <div>
-                                <div class="quick-action-text">Featured Sections</div>
-                                <div class="quick-action-desc">Organize homepage content</div>
+                            <ul class="dashboard-feed" id="dashRecentSignups">
+                                <li class="dashboard-feed-empty">Loading…</li>
+                            </ul>
+                        </div>
+                        <div class="info-card">
+                            <div class="info-card-title">
+                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+                                Recent comments
+                                <a href="#" onclick="switchPanel('comments-mod'); return false;" class="dashboard-feed-link">Moderate</a>
                             </div>
-                        </a>
-                        <a class="quick-action" onclick="switchPanel('appearance'); return false;" href="#">
-                            <div class="quick-action-icon" style="background: var(--success-bg); color: var(--success);">
-                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10c.55 0 1-.45 1-1v-.53a1 1 0 011-1h1.03c2.76 0 5-2.24 5-5 0-4.97-4.49-8.47-8.03-8.47z"/></svg>
-                            </div>
-                            <div>
-                                <div class="quick-action-text">Appearance</div>
-                                <div class="quick-action-desc">Colors, theme, card styles</div>
-                            </div>
-                        </a>
-                        <a class="quick-action" href="index.php" target="_blank">
-                            <div class="quick-action-icon" style="background: var(--warning-bg); color: var(--warning);">
-                                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                            </div>
-                            <div>
-                                <div class="quick-action-text">View Live Site</div>
-                                <div class="quick-action-desc">Opens in a new tab</div>
-                            </div>
-                        </a>
+                            <ul class="dashboard-feed" id="dashRecentComments">
+                                <li class="dashboard-feed-empty">Loading…</li>
+                            </ul>
+                        </div>
                     </div>
 
                     <div class="info-cards">

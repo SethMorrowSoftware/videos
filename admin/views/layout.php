@@ -48,6 +48,21 @@
                 <div class="panel" id="panel-sections">
                     <?php include __DIR__ . '/panels/sections.php'; ?>
                 </div>
+
+                <!-- Metrics Panel -->
+                <div class="panel" id="panel-metrics">
+                    <?php include __DIR__ . '/panels/metrics.php'; ?>
+                </div>
+
+                <!-- Users Panel -->
+                <div class="panel" id="panel-users">
+                    <?php include __DIR__ . '/panels/users.php'; ?>
+                </div>
+
+                <!-- Comments Moderation Panel -->
+                <div class="panel" id="panel-comments-mod">
+                    <?php include __DIR__ . '/panels/comments-mod.php'; ?>
+                </div>
             </div>
         </main>
     </div>
