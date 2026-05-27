@@ -15,9 +15,22 @@
         return m ? m.getAttribute('content') || '' : '';
     }
 
-    async function apiGet(action, params = {}) {
+    // If the admin session expires while the panel is open, every request
+    // begins to fail with 401 and the UI shows a wall of "Couldn't load…"
+    // toasts. Detect once and send the user back to the login page so they
+    // can sign in again -- no point retrying.
+    let authLostHandled = false;
+    function handleAuthLost() {
+        if (authLostHandled) return;
+        authLostHandled = true;
+        // admin.php without a valid session renders the sign-in form.
+        window.location.href = 'admin.php';
+    }
+
+    async function apiGet(action, params = {}, opts = {}) {
         const q = new URLSearchParams({ action, ...params });
-        const res = await fetch(`${API}?${q}`, { credentials: 'same-origin' });
+        const res = await fetch(`${API}?${q}`, { credentials: 'same-origin', signal: opts.signal });
+        if (res.status === 401 || res.status === 403) { handleAuthLost(); throw new Error('Session expired'); }
         const json = await res.json().catch(() => ({ success: false, error: 'Bad response' }));
         if (!res.ok || !json.success) throw new Error(json.error || 'Request failed');
         return json;
@@ -29,6 +42,7 @@
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
             body: JSON.stringify({ action, ...body }),
         });
+        if (res.status === 401 || res.status === 403) { handleAuthLost(); throw new Error('Session expired'); }
         const json = await res.json().catch(() => ({ success: false, error: 'Bad response' }));
         if (!res.ok || !json.success) throw new Error(json.error || 'Request failed');
         return json;
@@ -165,7 +179,7 @@
                         <div class="dashboard-feed-avatar">${escapeHtml(initial(name))}</div>
                         <div class="dashboard-feed-main">
                             <div class="dashboard-feed-title">${escapeHtml(name)}
-                                <a class="dashboard-feed-meta" href="player.php?video=${encodeURIComponent(c.archive_id)}" target="_blank">on ${escapeHtml(c.archive_id)}</a>
+                                <a class="dashboard-feed-meta" href="player.php?video=${encodeURIComponent(c.archive_id)}" target="_blank" rel="noopener noreferrer">on ${escapeHtml(c.archive_id)}</a>
                             </div>
                             <div class="dashboard-feed-sub">${escapeHtml(snippet)}${c.body && c.body.length > 120 ? '…' : ''}</div>
                         </div>
@@ -275,7 +289,7 @@
         const xLabels = [];
         const ticks = points.length <= 7 ? points.map((_, i) => i) : [0, Math.floor(points.length / 2), points.length - 1];
         ticks.forEach(i => {
-            const d = new Date(points[i].day + 'T00:00:00');
+            const d = new Date(points[i].day + 'T00:00:00Z');
             const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
             xLabels.push(`<text x="${xs(i)}" y="${H - 8}" class="metrics-chart-label-x" text-anchor="middle">${escapeHtml(label)}</text>`);
         });
@@ -407,6 +421,7 @@
         search: '',
         loaded: false,
         searchDebounce: null,
+        inflight: null,         // AbortController for the current request
     };
 
     async function loadUsers() {
@@ -439,18 +454,24 @@
     async function fetchUsers() {
         const tbody = document.getElementById('usersTableBody');
         if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="8" class="admin-table-empty">Loading…</td></tr>';
+        // Cancel any in-flight users request so a stale (older) response
+        // can't overwrite a newer one. Common when the user is still typing.
+        if (usersState.inflight) usersState.inflight.abort();
+        const ctrl = new AbortController();
+        usersState.inflight = ctrl;
+        tbody.innerHTML = '<tr><td colspan="7" class="admin-table-empty">Loading…</td></tr>';
         try {
             const res = await apiGet('users', {
                 page: usersState.page,
                 per_page: usersState.perPage,
                 role: usersState.role,
                 search: usersState.search,
-            });
+            }, { signal: ctrl.signal });
+            if (ctrl.signal.aborted) return;
             const users = res.users || [];
             const pg = res.pagination || { page: 1, pages: 1, total: 0 };
             if (users.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="admin-table-empty">No users match this filter.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="admin-table-empty">No users match this filter.</td></tr>';
             } else {
                 tbody.innerHTML = users.map(u => renderUserRow(u)).join('');
                 tbody.querySelectorAll('[data-role-change]').forEach(sel => {
@@ -477,7 +498,10 @@
             }
             renderPagination('usersPagination', pg, (p) => { usersState.page = p; fetchUsers(); });
         } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="8" class="admin-table-empty">Couldn’t load users: ${escapeHtml(err.message || '')}</td></tr>`;
+            if (err.name === 'AbortError' || ctrl.signal.aborted) return;
+            tbody.innerHTML = `<tr><td colspan="7" class="admin-table-empty">Couldn’t load users: ${escapeHtml(err.message || '')}</td></tr>`;
+        } finally {
+            if (usersState.inflight === ctrl) usersState.inflight = null;
         }
     }
 
@@ -501,7 +525,7 @@
                     </div>
                 </td>
                 <td>
-                    <select class="form-input form-input--inline" data-role-change data-user-id="${u.id}" data-prev-role="${u.role}">
+                    <select class="form-input form-input--inline" data-role-change data-user-id="${escapeHtml(u.id)}" data-prev-role="${escapeHtml(u.role)}">
                         ${roleOptions}
                     </select>
                 </td>
@@ -510,7 +534,6 @@
                 <td class="num">${formatCount(u.comment_count)}</td>
                 <td class="num">${formatCount(u.bookmark_count)}</td>
                 <td class="num">${formatCount(u.watch_count)}</td>
-                <td></td>
             </tr>
         `;
     }
@@ -604,15 +627,16 @@
 
     function renderModerationCard(c) {
         const name = c.display_name || c.username;
+        const reportCount = Number(c.report_count) || 0;
         const statusBadge = c.status === 'hidden'
             ? '<span class="badge badge-warning">Hidden</span>'
             : (c.status === 'deleted' ? '<span class="badge">Deleted</span>' : '');
-        const reportBadge = c.report_count > 0
-            ? `<span class="badge badge-danger">${c.report_count} report${c.report_count > 1 ? 's' : ''}</span>`
+        const reportBadge = reportCount > 0
+            ? `<span class="badge badge-danger">${reportCount} report${reportCount !== 1 ? 's' : ''}</span>`
             : '';
         const isReply = c.parent_id !== null;
         return `
-            <article class="mod-comment" data-mod-id="${c.id}" data-status="${c.status}">
+            <article class="mod-comment" data-mod-id="${escapeHtml(c.id)}" data-status="${escapeHtml(c.status)}">
                 <div class="mod-comment-avatar">${escapeHtml(initial(name))}</div>
                 <div class="mod-comment-main">
                     <header class="mod-comment-head">
@@ -625,7 +649,7 @@
                     </header>
                     <div class="mod-comment-body">${escapeHtml(c.body || '')}</div>
                     <footer class="mod-comment-foot">
-                        <a class="mod-comment-link" href="player.php?video=${encodeURIComponent(c.archive_id)}" target="_blank">
+                        <a class="mod-comment-link" href="player.php?video=${encodeURIComponent(c.archive_id)}" target="_blank" rel="noopener noreferrer">
                             View on ${escapeHtml(c.archive_id)}
                         </a>
                         <div class="mod-comment-actions">
@@ -634,7 +658,7 @@
                                 : `<button type="button" class="btn btn-secondary btn-sm" data-mod-action="hide">Hide</button>`
                             }
                             <button type="button" class="btn btn-danger btn-sm" data-mod-action="delete">Delete</button>
-                            ${c.report_count > 0
+                            ${reportCount > 0
                                 ? `<button type="button" class="btn btn-ghost btn-sm" data-mod-action="resolve-reports">Dismiss reports</button>`
                                 : ''
                             }
@@ -663,12 +687,17 @@
                 await apiPost('moderate', { id, op: action });
                 toast(`Comment ${action === 'delete' ? 'deleted' : action + 'd'}`, 'success');
             }
-            fetchModerationList();
-            // Refresh dashboard badges if user goes back to the dashboard
+            // Invalidate the dashboard cache so next visit re-pulls stats.
+            lastDashboardLoad = 0;
+            await fetchModerationList();
+            // Refresh sidebar badges so the reports counter reflects reality.
             loadDashboardBadgesOnly();
         } catch (err) {
             toast(err.message || 'Action failed', 'error');
-            btn.disabled = false;
+        } finally {
+            // The button has been removed by fetchModerationList re-render
+            // on success; this guards the failure path.
+            if (document.body.contains(btn)) btn.disabled = false;
         }
     }
 
@@ -693,15 +722,30 @@
     // PANEL LIFECYCLE
     // ============================================================
 
+    // Re-fetching the dashboard every time the user returns to it would
+    // hammer the DB; throttle so we refresh at most once per minute unless
+    // a moderation action explicitly forces a badge refresh.
+    let lastDashboardLoad = 0;
+    const DASHBOARD_TTL_MS = 60_000;
+
     document.addEventListener('admin:panel-shown', (e) => {
         const panel = e.detail;
         if (panel === 'metrics' && !metrics.loaded) loadMetrics();
         if (panel === 'users' && !usersState.loaded) loadUsers();
         if (panel === 'comments-mod' && !modState.loaded) loadCommentsMod();
+        if (panel === 'dashboard') {
+            // Re-pull stats if they've gone stale -- otherwise cards show
+            // pre-moderation counts after returning from the mod panel.
+            if (Date.now() - lastDashboardLoad > DASHBOARD_TTL_MS) {
+                lastDashboardLoad = Date.now();
+                loadDashboard();
+            }
+        }
     });
 
     document.addEventListener('DOMContentLoaded', () => {
         // Always populate dashboard (it's the default active panel).
+        lastDashboardLoad = Date.now();
         loadDashboard();
     });
 })();

@@ -2701,3 +2701,93 @@
     opacity: 1;
   }
 }
+
+/* ---- "Show more replies" button (paginated reply loading) ---- */
+.comments-load-more-replies {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--accent-color, #065fd4);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.comments-load-more-replies:hover {
+  background: color-mix(in srgb, var(--accent-color, #065fd4) 14%, transparent);
+}
+.comments-load-more-replies:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- Comment modals (delete confirm, report reason) ---- */
+.comments-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal, 1000);
+  animation: fadeIn 0.15s ease;
+}
+.comments-modal {
+  background: var(--color-bg-secondary, #1f1f1f);
+  border: 1px solid var(--color-border, #303030);
+  border-radius: 14px;
+  padding: 24px;
+  width: 90vw;
+  max-width: 440px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.comments-modal h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary, #fff);
+}
+.comments-modal-body {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #aaa);
+}
+.comments-modal-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  margin-bottom: 18px;
+  background: var(--color-bg-tertiary, #121212);
+  border: 1px solid var(--color-border, #303030);
+  border-radius: 8px;
+  color: var(--color-text-primary, #fff);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+.comments-modal-textarea:focus {
+  border-color: var(--accent-color, #065fd4);
+}
+.comments-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.comments-btn--danger {
+  background: #d93025;
+  color: #fff;
+}
+.comments-btn--danger:hover {
+  filter: brightness(1.1);
+}
