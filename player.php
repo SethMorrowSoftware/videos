@@ -453,6 +453,9 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
           <div id="descriptionContent" class="player-description-content"></div>
         </section>
 
+        <!-- Comments (members-only, site-local — never posted to archive.org) -->
+        <section id="commentsSection" class="player-comments-section" style="display: none;" aria-label="Member comments"></section>
+
         <!-- Downloads Panel -->
         <section id="downloadsPanel" class="player-downloads-panel" style="display: none;">
           <div class="player-downloads-header">
