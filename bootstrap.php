@@ -294,6 +294,28 @@ function base_path(string $relative = ''): string {
     return ARCHIVE_FILM_CLUB_ROOT . ($relative === '' ? '' : '/' . $relative);
 }
 
+/**
+ * Cache-busting URL for a local static asset (CSS / JS / etc.).
+ *
+ * Appends `?v=<mtime>` derived from the file's last-modified time, so any
+ * deployed change to the file yields a brand-new URL. That new URL sidesteps
+ * BOTH layers of caching that would otherwise hide the change:
+ *   1. the 1-week browser HTTP cache (see `ExpiresByType` in .htaccess), and
+ *   2. the service worker's cache-first static handler (see sw.js), whose
+ *      background "refresh" fetch can itself be answered from that HTTP cache.
+ * Without it, a CSS/JS fix can stay invisible behind those caches for days.
+ *
+ * Returns a RELATIVE url (no leading slash) to preserve subdirectory
+ * deployments, and falls back to the bare path if the file can't be stat'd.
+ *
+ * @param string $relative Path relative to project root, e.g. "player-styles.css".
+ */
+function asset_url(string $relative): string {
+    $relative = ltrim($relative, '/');
+    $mtime = @filemtime(base_path($relative));
+    return $mtime ? ($relative . '?v=' . $mtime) : $relative;
+}
+
 // =====================================================
 // GLOBAL ERROR HANDLERS
 // =====================================================
