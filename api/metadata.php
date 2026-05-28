@@ -19,15 +19,26 @@ try {
     $archiveService = new ArchiveOrgService();
     $result = $archiveService->getMetadata($archiveId);
 
-    // public/cacheable -- metadata is not user-bound. Short max-age plus
-    // long stale-while-revalidate gives instant repeat loads but lets
-    // background-revalidation pick up freshly cached items.
-    if ($result['cached'] ?? false) {
+    // public/cacheable — metadata is not user-bound and the server caches
+    // it permanently against archive.org. The headers below govern how
+    // often the BROWSER comes back to the server; the server doesn't
+    // re-hit archive.org just because the browser re-asks.
+    //
+    // Fresh DB hit: 24-hour browser cache + 7-day SWR. Metadata for an
+    //   archive.org item virtually never changes.
+    // Stale DB hit: short window so the browser picks up the background
+    //   refresh result on its next request.
+    // Cache miss: medium window — next page load reuses the just-cached row.
+    $stale = $result['stale'] ?? false;
+    if ($stale) {
+        header('X-Cache: STALE');
+        header('Cache-Control: public, max-age=300, stale-while-revalidate=86400');
+    } elseif ($result['cached'] ?? false) {
         header('X-Cache: HIT');
-        header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
+        header('Cache-Control: public, max-age=86400, stale-while-revalidate=604800');
     } else {
         header('X-Cache: MISS');
-        header('Cache-Control: public, max-age=300, stale-while-revalidate=3600');
+        header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
     }
 
     echo json_encode($result);

@@ -22,7 +22,7 @@ $initialTheme = ($site_settings['defaultTheme'] ?? 'dark') === 'system' ? 'dark'
 <html lang="en" data-theme="<?= htmlspecialchars($initialTheme, ENT_QUOTES) ?>">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title>Forgot password · <?= htmlspecialchars($site_settings['siteName'], ENT_QUOTES) ?></title>

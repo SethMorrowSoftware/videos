@@ -39,7 +39,7 @@ function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 <html lang="en" data-theme="<?= esc($initialTheme) ?>">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title>My Collections · <?= esc($site_settings['siteName']) ?></title>

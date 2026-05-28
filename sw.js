@@ -1,7 +1,16 @@
 /**
  * Service Worker for Comet Cult Film Club
- * Version: 1.3.0
+ * Version: 1.4.0
  * Features: Offline support, intelligent caching, background sync
+ *
+ * v1.4 changes:
+ *   - SWR strategy now skips the background revalidation when the cached
+ *     response is still within TTL. Prior version fired a refresh on every
+ *     repeat keystroke even with a fresh cache, defeating the cache.
+ *   - Bumped search/metadata TTLs to match the server's new permanent
+ *     caching contract: archive.org is now hit ~once per query per stale
+ *     window, server-side, so we can be more aggressive caching at the
+ *     SW layer without risk of pressuring upstream.
  *
  * v1.3 changes:
  *   - fetchWithTimeout now uses a real AbortController so timed-out
@@ -27,7 +36,7 @@
  *   - metadata-batch.php gets cache-first treatment like metadata.php
  */
 
-const CACHE_VERSION = 'ccfc-v5';
+const CACHE_VERSION = 'ccfc-v6';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -178,13 +187,20 @@ async function handleApiRequest(request) {
     return fetch(request);
   }
 
-  // Determine cache strategy based on endpoint filename
+  // Determine cache strategy based on endpoint filename.
+  //
+  // TTL here is when the SW will revalidate against the SERVER. The server
+  // is now permanently caching against archive.org, so a SW revalidation
+  // hit is cheap (DB hit, ~milliseconds) and doesn't pressure archive.org.
+  // We can therefore be a bit conservative on the TTL — instant repeat
+  // searches stay instant, but a 30-minute window means a user who hits
+  // the same page later gets fresher data.
   const cacheStrategies = {
-    'search.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' }, // 5 min, instant repeat searches
-    'metadata.php': { ttl: 24 * 60 * 60 * 1000, strategy: 'cache-first' },    // 1 day, metadata rarely changes
-    'metadata-batch.php': { ttl: 24 * 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
-    'thumbnail.php': { ttl: 365 * 24 * 60 * 60 * 1000, strategy: 'cache-first' }, // 1 year, immutable
-    'settings.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },   // 5 min so admin edits show up promptly
+    'search.php': { ttl: 30 * 60 * 1000, strategy: 'stale-while-revalidate' },     // 30 min; server has it permanently anyway
+    'metadata.php': { ttl: 7 * 24 * 60 * 60 * 1000, strategy: 'cache-first' },     // 7 days, metadata rarely changes; server has it permanently
+    'metadata-batch.php': { ttl: 7 * 24 * 60 * 60 * 1000, strategy: 'stale-while-revalidate' },
+    'thumbnail.php': { ttl: 365 * 24 * 60 * 60 * 1000, strategy: 'cache-first' },  // 1 year, immutable
+    'settings.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },    // 5 min so admin edits show up promptly
     'recommendations.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },
     'sections.php': { ttl: 5 * 60 * 1000, strategy: 'stale-while-revalidate' },
   };
@@ -279,14 +295,32 @@ async function handleNetworkFirst(request, ttl) {
 /**
  * Stale-while-revalidate: Return cache immediately, update in background.
  *
- * If we have ANY cached copy we return it immediately and let the network
- * refresh happen non-blocking — even when the cache is past TTL. Better
- * to show slightly-stale results than to hang the user behind a slow
- * archive.org call.
+ * If we have ANY cached copy we return it immediately. The background
+ * refetch only fires when the cache is past TTL — a fresh hit doesn't
+ * waste a network round-trip just to refresh data we already have. This
+ * matters for repeat-search bursts where the previous version fired a
+ * background fetch on every keystroke, defeating the point of caching.
+ *
+ * When the cache is past TTL but a refetch is in flight, we still return
+ * the cached copy synchronously — the next request will pick up the
+ * refreshed entry.
  */
 async function handleStaleWhileRevalidate(request, ttl) {
   const url = new URL(request.url);
   const cachedResponse = await caches.match(request);
+
+  let needsRefresh = true;
+  if (cachedResponse) {
+    const age = await getCacheAge(cachedResponse);
+    if (age < ttl) {
+      // Cache is still fresh — no background fetch needed.
+      needsRefresh = false;
+    }
+  }
+
+  if (cachedResponse && !needsRefresh) {
+    return cachedResponse;
+  }
 
   const fetchPromise = fetchWithTimeout(request, 20000)
     .then(async networkResponse => {
@@ -298,14 +332,14 @@ async function handleStaleWhileRevalidate(request, ttl) {
       return networkResponse;
     })
     .catch(err => {
-      // Background refresh failure is non-fatal when we have cache. The
-      // page will keep working off the stale entry and the next request
-      // gets another shot at the network.
       if (!cachedResponse) console.warn('[SW] SWR network failed:', err && err.name);
       return null;
     });
 
   if (cachedResponse) {
+    // Past TTL but we have a copy — return it synchronously and let the
+    // network refresh in the background. The page can be refreshed by the
+    // user to pick up the new entry on the next request.
     return cachedResponse;
   }
 

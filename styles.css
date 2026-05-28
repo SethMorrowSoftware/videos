@@ -2586,14 +2586,38 @@ textarea:focus-visible {
   }
 }
 
+/* ==============================================
+   MOBILE — YouTube-style polish
+   Breakpoints:
+     ≤768px  → tablet + phone shared rules
+     481–768 → tablet specifics (2-col grid)
+     ≤480px  → phone specifics (1-col, larger touch targets)
+   ============================================== */
+
 @media (max-width: 768px) {
+  /* ---- Body / safe area ---- */
   body {
-    padding-top: var(--header-height);
+    /* env() values are 0 when there's no notch, so this collapses cleanly
+       on non-iPhone devices. */
+    padding-top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* ---- Header ---- */
+  .site-header {
+    /* Lift the header content below the notch so the search bar isn't
+       hidden behind the status bar in PWA standalone mode. */
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(var(--header-height) + env(safe-area-inset-top, 0px));
   }
 
   .header-content {
-    padding: 0 var(--space-3);
-    gap: var(--space-3);
+    height: var(--header-height);
+    /* Respect safe-area on rotation so the hamburger isn't clipped in
+       landscape PWA. */
+    padding: 0 max(var(--space-3), env(safe-area-inset-right))
+             0 max(var(--space-3), env(safe-area-inset-left));
+    gap: var(--space-2);
   }
 
   .logo-text {
@@ -2605,8 +2629,63 @@ textarea:focus-visible {
     gap: var(--space-2);
   }
 
+  /* Bring back header-end on mobile, compact icon-only layout.
+     Desktop hid this entirely, forcing users into the drawer to find auth
+     or the theme toggle — even though there's plenty of room for an
+     icon-sized version. */
   .header-end {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  .header-auth {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Avatar button: drop the username text + chrome, keep just the colored
+     circle. Tap target is the full 40×40. */
+  .header-auth-avatar-btn {
+    padding: 0;
+    width: 40px;
+    height: 40px;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    justify-content: center;
+  }
+
+  .header-auth-avatar-btn:hover {
+    background: var(--color-bg-hover);
+    border-color: transparent;
+  }
+
+  .header-auth-avatar-btn > span:not(.header-auth-avatar-circle) {
     display: none;
+  }
+
+  /* Signed-out: keep Sign in, hide Sign up. Two buttons is too crowded on
+     a phone header; the drawer still has both. */
+  .header-auth-link {
+    padding: 0 var(--space-4);
+    height: 36px;
+    font-size: var(--font-size-sm);
+    border-radius: var(--radius-full);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .header-auth-link--primary {
+    display: none;
+  }
+
+  .theme-toggle {
+    width: 40px;
+    height: 40px;
   }
 
   .header-search-form {
@@ -2617,6 +2696,15 @@ textarea:focus-visible {
 
   .header-search-input-wrapper {
     border-radius: var(--radius-full);
+    height: 40px;
+  }
+
+  .header-search-input {
+    padding: 0 var(--space-4);
+    /* iOS auto-zooms input fields when font-size < 16px. Keep at 16px on
+       mobile so tapping the search bar doesn't cause the page to zoom and
+       reflow. */
+    font-size: 16px;
   }
 
   .header-search-kbd {
@@ -2627,35 +2715,49 @@ textarea:focus-visible {
     display: none;
   }
 
+  /* Hamburger / close: full 44×44 tap target per Apple HIG. */
   .mobile-menu-btn {
     display: grid;
     order: -1;
+    width: 44px;
+    height: 44px;
   }
 
   .mobile-close-btn {
     display: grid;
     place-content: center;
+    width: 44px;
+    height: 44px;
+    top: calc(var(--space-3) + env(safe-area-inset-top, 0px));
+    right: var(--space-3);
   }
 
+  /* ---- Layout ---- */
   .main-layout {
     flex-direction: column;
   }
 
+  /* ---- Sidebar drawer ---- */
   .sidebar {
     position: fixed;
     top: 0;
     left: -100%;
-    width: 85%;
-    max-width: 320px;
+    width: 88%;
+    max-width: 340px;
     height: 100dvh;
     background: var(--surface-glass-strong);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     z-index: var(--z-modal);
     transition: left var(--transition-slow);
     border-right: 1px solid var(--color-border);
     border-radius: 0;
-    padding: calc(var(--space-12) + env(safe-area-inset-top, 0px)) var(--space-5) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+    padding: calc(var(--space-14, var(--space-12)) + env(safe-area-inset-top, 0px))
+             max(var(--space-5), env(safe-area-inset-left))
+             calc(var(--space-6) + env(safe-area-inset-bottom, 0px))
+             max(var(--space-5), env(safe-area-inset-left));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .sidebar.open {
@@ -2663,18 +2765,48 @@ textarea:focus-visible {
     box-shadow: var(--shadow-2xl);
   }
 
-  .content-area {
-    padding: var(--space-4);
+  /* Bigger drop-targets inside the drawer. Selects on iOS feel cramped at
+     the default 36px and a long tap-and-hold sometimes misses. */
+  .filter-select {
+    height: 44px;
+    font-size: var(--font-size-base);
+    padding-block: var(--space-3);
   }
 
-  /* Staff Picks - Mobile */
-  .recommended-section {
+  .checkbox-group {
+    padding: var(--space-3);
+    min-height: 44px;
+  }
+
+  /* ---- Content area ---- */
+  .content-area {
+    padding: var(--space-4) max(var(--space-4), env(safe-area-inset-left))
+             calc(var(--space-6) + env(safe-area-inset-bottom, 0px))
+             max(var(--space-4), env(safe-area-inset-right));
+  }
+
+  /* ---- Staff Picks / Featured rows ---- */
+  .recommended-section,
+  .featured-section {
     margin-bottom: var(--space-6);
   }
 
   .recommended-card,
   .featured-card {
-    flex: 0 0 160px;
+    flex: 0 0 200px;
+    /* scroll-snap so the row stops on whole cards when the user flicks. */
+    scroll-snap-align: start;
+  }
+
+  .recommended-card-title,
+  .featured-card-title {
+    font-size: var(--font-size-sm);
+    line-height: 1.3;
+  }
+
+  .recommended-card-creator,
+  .featured-card-creator {
+    font-size: var(--font-size-xs);
   }
 
   .scroll-btn {
@@ -2684,10 +2816,17 @@ textarea:focus-visible {
   .recommended-grid,
   .featured-section-grid {
     scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    /* Bleed scroll area to the screen edge so the first/last card peeks
+       just past the content padding — clear affordance that this is
+       a horizontal scroller. */
     margin-left: calc(-1 * var(--space-4));
     margin-right: calc(-1 * var(--space-4));
     padding-left: var(--space-4);
     padding-right: var(--space-4);
+    scroll-padding-left: var(--space-4);
+    gap: var(--space-3);
+    -webkit-overflow-scrolling: touch;
   }
 
   .recommended-grid::-webkit-scrollbar,
@@ -2695,53 +2834,152 @@ textarea:focus-visible {
     display: none;
   }
 
-  .results-grid {
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: var(--space-5) var(--space-4);
+  /* Section headings get a touch more presence on mobile so they stand
+     out against full-width cards. */
+  .featured-section-title,
+  .recommended-title {
+    font-size: var(--font-size-lg);
   }
 
-  /* Show actions on mobile since no hover */
+  .recommended-header,
+  .featured-section-header {
+    margin-bottom: var(--space-3);
+  }
+
+  /* ---- Result cards ---- */
+  /* Always-visible action row + bigger thumbnails. The old "show on hover"
+     pattern doesn't work on touch — the actions are now part of the card
+     resting state. */
   .result-actions {
     opacity: 1;
+    transform: none;
+    margin-top: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .result-actions .btn {
+    height: 40px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .btn-play,
+  .btn-archive {
+    flex: 1;
+  }
+
+  .btn-share,
+  .btn-bookmark {
+    width: 40px !important;
+    height: 40px !important;
+    flex: 0 0 40px !important;
+    padding: 0 !important;
+  }
+
+  /* Hover-only thumbnail overlay never fires on touch — drop the dimming
+     so the actual thumbnail is fully visible. */
+  .result-card .thumb-play-overlay {
+    display: none;
+  }
+
+  .result-card:hover {
+    transform: none;
+  }
+  .result-card:hover .result-thumb {
     transform: none;
   }
 
   .pagination {
     margin: var(--space-6) 0;
+    gap: var(--space-2);
   }
 }
 
-@media (max-width: 480px) {
-  .header-content {
-    padding: 0 var(--space-2);
-  }
-
-  .logo-icon {
-    width: 30px;
-    height: 30px;
-  }
-
-  .content-area {
-    padding: var(--space-3);
-  }
-
-  .recommended-card,
-  .featured-card {
-    flex: 0 0 140px;
-  }
-
-  .recommended-card-title,
-  .featured-card-title {
-    font-size: var(--font-size-xs);
-  }
-
+/* Tablet range: 2-column result grid. Single-column on a 480-768px screen
+   wastes way too much horizontal space; cards in two columns feel right. */
+@media (min-width: 481px) and (max-width: 768px) {
   .results-grid {
-    grid-template-columns: 1fr;
-    gap: var(--space-5);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-6) var(--space-4);
   }
 
   .result-title {
     font-size: var(--font-size-sm);
+  }
+}
+
+@media (max-width: 480px) {
+  /* ---- Phone ---- */
+  .header-content {
+    padding: 0 max(var(--space-2), env(safe-area-inset-left));
+    gap: var(--space-2);
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .logo-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Phone: 1-column grid with YouTube-mobile-style cards.
+     Full-width thumbnail, title + meta block, action row below. */
+  .results-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-7, var(--space-6));
+  }
+
+  .result-card {
+    padding-bottom: var(--space-2);
+  }
+
+  .result-thumbnail {
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-3);
+    box-shadow: var(--shadow-md);
+  }
+
+  .result-title {
+    font-size: 1rem;
+    line-height: 1.35;
+    -webkit-line-clamp: 2;
+    margin-bottom: var(--space-2);
+  }
+
+  .result-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-tertiary);
+    gap: var(--space-3);
+  }
+
+  /* Phone: slightly smaller featured cards but still readable.
+     200px would only fit ~1.5 cards on a 360px screen which feels weird;
+     180px shows ~2 cards clearly. */
+  .recommended-card,
+  .featured-card {
+    flex: 0 0 180px;
+  }
+
+  .content-area {
+    padding: var(--space-3) max(var(--space-3), env(safe-area-inset-left))
+             calc(var(--space-6) + env(safe-area-inset-bottom, 0px))
+             max(var(--space-3), env(safe-area-inset-right));
+  }
+
+  /* Action row goes a touch more compact on the narrowest phones. */
+  .result-actions .btn {
+    height: 38px;
+    font-size: var(--font-size-xs);
+  }
+
+  .btn-share,
+  .btn-bookmark {
+    width: 38px !important;
+    height: 38px !important;
+    flex: 0 0 38px !important;
   }
 }
 

@@ -12,15 +12,27 @@ class CacheManager {
     private $db;
     private $config;
 
-    // Cache TTL settings (in seconds)
-    private $searchTTL = 1800;      // 30 minutes
+    // Cache TTL settings (in seconds). With permanent caching on (the
+    // default), the TTL only governs when a row is marked STALE and queued
+    // for background refresh — never when it's deleted.
+    private $searchTTL = 1800;      // 30 minutes → stale-after for search
     private $metadataTTL = 86400;   // 24 hours
     private $thumbnailTTL = 604800; // 7 days
     private $settingsTTL = 3600;    // 1 hour
 
-    // Permanent storage settings
+    // Permanent storage settings. The DB schema (migration 002) already
+    // tracks is_permanent / is_stale on both metadata and search rows, so
+    // turning this on means we cache "forever" with stale-while-revalidate
+    // semantics rather than ever throwing data away.
     private $permanentCaching = true;
     private $staleAfterDays = 30;   // Consider data stale after this many days
+
+    // Thumbnail idle retention. Previously hard-coded to 30 days in
+    // cleanExpiredCache() — set to 0 to disable the sweep entirely (truly
+    // permanent), or any positive number to expire idle thumbnails after
+    // that many days. Overridable via the `thumbnailRetentionDays` site
+    // setting.
+    private $thumbnailRetentionDays = 0; // 0 = never delete
 
     public function __construct() {
         $this->db = Database::getInstance();
@@ -56,6 +68,13 @@ class CacheManager {
             if ($staleSetting) {
                 $this->staleAfterDays = (int)$staleSetting['setting_value'];
             }
+
+            $thumbRetention = $this->db->fetchOne(
+                "SELECT setting_value FROM site_settings WHERE setting_key = 'thumbnailRetentionDays'"
+            );
+            if ($thumbRetention !== null) {
+                $this->thumbnailRetentionDays = (int)$thumbRetention['setting_value'];
+            }
         } catch (Exception $e) {
             // Use defaults if settings don't exist yet
         }
@@ -81,42 +100,84 @@ class CacheManager {
     // =====================================================
 
     /**
-     * Get cached search results
+     * Get cached search results.
+     *
+     * With permanent caching on (the default), we return the cached row
+     * even when it's past its "fresh" window — and mark it stale so the
+     * background queue refreshes it. This way archive.org gets hit at most
+     * once per query per staleAfterDays window, instead of once every 30
+     * minutes the way the old TTL-only code worked. The caller can inspect
+     * the `_is_stale` flag to set shorter HTTP cache headers if it wants
+     * the browser to come back sooner.
      */
     public function getSearchCache(string $cacheKey): ?array {
+        // Fast path: fresh, non-expired hit.
         $result = $this->db->fetchOne(
             "SELECT response_data, hit_count FROM search_cache
-             WHERE cache_key = ? AND expires_at > NOW()",
+             WHERE cache_key = ? AND (expires_at IS NULL OR expires_at > NOW())",
             [$cacheKey]
         );
 
         if ($result) {
-            // Update hit count and last accessed
             $this->db->query(
                 "UPDATE search_cache SET hit_count = hit_count + 1, last_accessed = NOW()
                  WHERE cache_key = ?",
                 [$cacheKey]
             );
+            $decoded = json_decode($result['response_data'], true);
+            return $decoded;
+        }
 
-            return json_decode($result['response_data'], true);
+        // Permanent-cache path: row exists but is past expires_at. Return
+        // it anyway, mark stale, queue for background refresh. This is the
+        // key behavior that prevents archive.org from being hit on every
+        // page view of a popular query.
+        if ($this->permanentCaching) {
+            $stale = $this->db->fetchOne(
+                "SELECT response_data, query_params FROM search_cache WHERE cache_key = ?",
+                [$cacheKey]
+            );
+            if ($stale) {
+                $this->db->query(
+                    "UPDATE search_cache
+                     SET hit_count = hit_count + 1, last_accessed = NOW(), is_stale = 1
+                     WHERE cache_key = ?",
+                    [$cacheKey]
+                );
+                $decoded = json_decode($stale['response_data'], true);
+                if (is_array($decoded)) {
+                    $decoded['_is_stale'] = true;
+                }
+                return $decoded;
+            }
         }
 
         return null;
     }
 
     /**
-     * Set search cache
+     * Set search cache.
+     *
+     * With permanent caching on (default), expires_at is set to the stale
+     * threshold rather than a hard delete deadline. The cleanup cron leaves
+     * permanent rows alone; expires_at just controls when the next read
+     * marks the row stale and queues a refresh.
      */
     public function setSearchCache(string $cacheKey, array $params, array $data, int $resultCount = 0): void {
         $expiresAt = date('Y-m-d H:i:s', time() + $this->searchTTL);
+        $isPermanent = $this->permanentCaching ? 1 : 0;
 
         $this->db->query(
-            "INSERT INTO search_cache (cache_key, query_params, response_data, result_count, expires_at)
-             VALUES (?, ?, ?, ?, ?)
+            "INSERT INTO search_cache
+                (cache_key, query_params, response_data, result_count, expires_at, is_permanent, is_stale, last_refreshed)
+             VALUES (?, ?, ?, ?, ?, ?, 0, NOW())
              ON DUPLICATE KEY UPDATE
                 response_data = VALUES(response_data),
                 result_count = VALUES(result_count),
                 expires_at = VALUES(expires_at),
+                is_permanent = VALUES(is_permanent),
+                is_stale = 0,
+                last_refreshed = NOW(),
                 hit_count = 0,
                 last_accessed = NOW()",
             [
@@ -124,8 +185,24 @@ class CacheManager {
                 json_encode($params),
                 json_encode($data),
                 $resultCount,
-                $expiresAt
+                $expiresAt,
+                $isPermanent,
             ]
+        );
+    }
+
+    /**
+     * Get search cache rows currently marked stale, so the background
+     * queue / cron warmer can refresh them. Ordered by most-recently
+     * accessed so we re-warm what users actually care about first.
+     */
+    public function getStaleSearches(int $limit = 50): array {
+        return $this->db->fetchAll(
+            "SELECT cache_key, query_params, last_accessed FROM search_cache
+             WHERE is_stale = 1
+             ORDER BY last_accessed DESC
+             LIMIT ?",
+            [$limit]
         );
     }
 
@@ -505,7 +582,18 @@ class CacheManager {
     // =====================================================
 
     /**
-     * Clean up expired cache entries
+     * Clean up expired cache entries.
+     *
+     * Permanent rows (is_permanent=1) are NEVER deleted — that would defeat
+     * the entire point of permanent caching by re-hitting archive.org on
+     * every cron run. We only sweep:
+     *   - search/metadata rows whose is_permanent=0 AND expires_at has passed
+     *   - thumbnails idle for `thumbnailRetentionDays` days (default: never)
+     *
+     * Previously this sweep was the silent reason a "permanently cached"
+     * site would re-hit archive.org every 30 minutes for popular searches:
+     * setSearchCache() always wrote expires_at=NOW()+30min, and this query
+     * happily deleted those rows every hour.
      */
     public function cleanExpiredCache(): array {
         $deleted = [
@@ -514,29 +602,46 @@ class CacheManager {
             'thumbnails' => 0,
         ];
 
-        // Clean search cache
-        $stmt = $this->db->query("DELETE FROM search_cache WHERE expires_at < NOW()");
+        // Search cache: only drop non-permanent expired rows.
+        $stmt = $this->db->query(
+            "DELETE FROM search_cache
+             WHERE (is_permanent IS NULL OR is_permanent = 0)
+               AND expires_at IS NOT NULL
+               AND expires_at < NOW()"
+        );
         $deleted['search'] = $stmt->rowCount();
 
-        // Clean metadata cache
-        $stmt = $this->db->query("DELETE FROM video_metadata_cache WHERE expires_at < NOW()");
+        // Metadata cache: same guard — only drop non-permanent expired rows.
+        $stmt = $this->db->query(
+            "DELETE FROM video_metadata_cache
+             WHERE (is_permanent IS NULL OR is_permanent = 0)
+               AND expires_at IS NOT NULL
+               AND expires_at < NOW()"
+        );
         $deleted['metadata'] = $stmt->rowCount();
 
-        // Clean old thumbnails (not accessed in 30 days)
-        $oldThumbnails = $this->db->fetchAll(
-            "SELECT local_path FROM thumbnail_cache WHERE last_accessed < DATE_SUB(NOW(), INTERVAL 30 DAY)"
-        );
+        // Thumbnails: only sweep if the operator opts in. Default 0 = never.
+        if ($this->thumbnailRetentionDays > 0) {
+            $days = (int)$this->thumbnailRetentionDays;
+            $oldThumbnails = $this->db->fetchAll(
+                "SELECT local_path FROM thumbnail_cache
+                 WHERE last_accessed < DATE_SUB(NOW(), INTERVAL ? DAY)",
+                [$days]
+            );
 
-        foreach ($oldThumbnails as $thumb) {
-            if (file_exists($thumb['local_path'])) {
-                unlink($thumb['local_path']);
+            foreach ($oldThumbnails as $thumb) {
+                if (!empty($thumb['local_path']) && file_exists($thumb['local_path'])) {
+                    @unlink($thumb['local_path']);
+                }
             }
-        }
 
-        $stmt = $this->db->query(
-            "DELETE FROM thumbnail_cache WHERE last_accessed < DATE_SUB(NOW(), INTERVAL 30 DAY)"
-        );
-        $deleted['thumbnails'] = $stmt->rowCount();
+            $stmt = $this->db->query(
+                "DELETE FROM thumbnail_cache
+                 WHERE last_accessed < DATE_SUB(NOW(), INTERVAL ? DAY)",
+                [$days]
+            );
+            $deleted['thumbnails'] = $stmt->rowCount();
+        }
 
         return $deleted;
     }
