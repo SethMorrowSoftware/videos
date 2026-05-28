@@ -134,15 +134,21 @@ Both query `FROM search_history WHERE created_at > ...`, but `search_history` de
 The queue is claimed with a `SELECT ... WHERE status='pending'` followed by a separate `UPDATE ... status='processing'` — no `SELECT ... FOR UPDATE`/`GET_LOCK`/atomic claim. Two overlapping cron runs (likely on shared hosting with a short `max_execution_time` and a `*/5` schedule) process the same rows, defeating dedup. Worse, a run killed mid-item leaves rows stuck in `processing` forever — `getPendingCacheItems` only selects `pending`, so they never retry. (Largely moot until **C1** is fixed, since these queries currently throw.)
 **Fix:** Claim atomically (`UPDATE cache_queue SET status='processing', attempts=attempts+1 WHERE id=? AND status='pending'` and only proceed when `rowCount()===1`); add a reaper that resets stale `processing` rows. Add a `GET_LOCK`/flock overlap guard to `cron/process_cache_queue.php`.
 
+**Status — FIXED in PR #63.** `markQueueItemProcessing()` now claims atomically (proceeds only on `rowCount()===1`) and stamps `processed_at`; `processQueue()` skips a lost claim. `reapStuckQueueItems()` re-queues rows stuck in `processing` (or `NULL processed_at`) past a window, failing them once `attempts` is exhausted. The cron takes a per-database `GET_LOCK` (released in `finally`, auto-released on death). No schema change needed.
+
 ### M2. Migration 003 is not safely re-runnable for incremental upgrades **[verified]**
 **Where:** `db/migrations/003_user_accounts.sql:30-41`; runner `install.php:217-238`.
 Migration 003 is a single multi-clause `ALTER TABLE users` (8 columns + 3 keys). The installer splits on `;` (so it's one statement) and swallows "Duplicate column" errors. A fresh first run applies all clauses atomically (fine). But because MySQL aborts the whole ALTER on the first already-existing clause, **adding a new clause to this migration later and re-running will not apply it** — the ALTER dies on `ADD COLUMN username` and is swallowed. This contradicts the file's own "Safe to run … Re-runnable" comment.
 **Fix:** Split into one `ALTER TABLE users ADD COLUMN …;` per clause (the one-per-statement style migration 002 already uses).
 
+**Status — FIXED in PR #63.** The multi-clause ALTER is now 11 separate `ALTER TABLE users ADD …;` statements (each keeps its `AFTER` clause, so fresh-install column order is unchanged). Each clause now applies/skips independently on re-run.
+
 ### M3. "Permanent cache" depends on migration 002's `MODIFY` having succeeded **[verified]**
 **Where:** `db/migrations/001_initial_schema.sql:100,125` (`expires_at TIMESTAMP NOT NULL`) vs `002:42,100` (`MODIFY … TIMESTAMP NULL`) vs `cache/CacheManager.php:281-283` (writes `expires_at = NULL`).
 Permanent cache rows are written with `expires_at = NULL`. That only works if migration 002 made the column nullable. If 002 didn't fully apply, inserting `NULL` either errors (strict mode) or coerces to `0000-00-00`/`CURRENT_TIMESTAMP` (non-strict), making every "permanent" row instantly expired.
 **Fix:** Declare `expires_at TIMESTAMP NULL DEFAULT NULL` directly in migration 001, and verify 002's `MODIFY` post-install.
+
+**Status — FIXED in PR #63.** Both cache tables in migration 001 now declare `expires_at TIMESTAMP NULL DEFAULT NULL`, so fresh installs are correct even if 002's `MODIFY` didn't apply. `expires_at` isn't the first TIMESTAMP in either table, so there's no implicit `DEFAULT CURRENT_TIMESTAMP` interaction. Migration 002's `MODIFY` is left in place (now a harmless no-op on fresh installs).
 
 ### M4. Renaming a collection regenerates its slug and dead-links shared URLs **[flagged]**
 **Where:** `services/Collection/CollectionService.php:185-215`.
