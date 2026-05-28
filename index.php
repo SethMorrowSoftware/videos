@@ -411,6 +411,13 @@ if (!empty($recommendations_config['enabled']) && !empty($recommendations_config
 </head>
 <body data-card-style="<?= escapeAttr($site_settings['cardStyle']) ?>">
   <a class="skip-link" href="#mainResults">Skip to results</a>
+  <noscript>
+    <div class="noscript-banner" role="alert">
+      <h2>JavaScript is required</h2>
+      <p><?= escapeAttr($site_settings['siteName']) ?> is an interactive front-end for the public collection at the Internet Archive, and needs JavaScript to search and play videos. Please enable JavaScript and reload the page.</p>
+      <p>In the meantime, you can browse the same films directly at <a href="https://archive.org/details/movies" target="_blank" rel="noopener">archive.org</a>.</p>
+    </div>
+  </noscript>
   <header class="site-header">
     <div class="header-content">
       <button class="mobile-menu-btn" aria-label="Open menu">

@@ -2539,6 +2539,42 @@ textarea:focus-visible {
 }
 
 /* ==============================================
+   No-JavaScript fallback
+   ==============================================
+   The <noscript> element renders its contents ONLY when scripting is
+   disabled, so this banner has zero effect on the normal (JS-enabled)
+   experience. It prevents the worst-case "blank page" when the app
+   bundle can't run, and points visitors at the underlying archive.org
+   collection so the trip isn't wasted. */
+.noscript-banner {
+  max-width: 60rem;
+  margin: var(--space-6) auto;
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-md);
+}
+.noscript-banner h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+.noscript-banner p {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-normal);
+}
+.noscript-banner p:last-child {
+  margin-bottom: 0;
+}
+.noscript-banner a {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ==============================================
    Custom Scrollbars
    ============================================== */
 * {
