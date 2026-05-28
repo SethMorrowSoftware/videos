@@ -80,7 +80,7 @@ DB_PASSWORD=your_db_password
 Visit `https://yourdomain.com/install.php` in your browser. The setup wizard will:
 
 1. Test your database connection
-2. Run the database migrations (001 → 005)
+2. Run the database migrations (001 → 006)
 3. Create your admin account (and write the `.installed` lock immediately)
 4. Migrate any existing JSON data (or skip on a fresh install)
 5. Show you the post-install lock-down checklist
@@ -112,6 +112,7 @@ mysql -u your_db_user -p your_database_name < db/migrations/002_permanent_local_
 mysql -u your_db_user -p your_database_name < db/migrations/003_user_accounts.sql
 mysql -u your_db_user -p your_database_name < db/migrations/004_collections.sql
 mysql -u your_db_user -p your_database_name < db/migrations/005_auth_throttle.sql
+mysql -u your_db_user -p your_database_name < db/migrations/006_comments.sql
 ```
 
 After the migrations are in place, create the first admin account by
@@ -254,7 +255,7 @@ videos/
 ├── db/                        # Database layer
 │   ├── Database.php           # PDO singleton + helpers
 │   ├── config.php             # Configuration loader
-│   └── migrations/            # 001 → 004 SQL migration files
+│   └── migrations/            # 001 → 006 SQL migration files
 │
 ├── services/                  # Business logic (PSR-4 autoloaded)
 │   ├── ArchiveOrgService.php  # Archive.org API client + cache glue
@@ -435,9 +436,11 @@ The app ships with a verified security baseline:
 > real admin account.
 
 Known gaps accepted for beta:
-no CSRF tokens (the app relies on `SameSite=Lax` + JSON-only POSTs), no
-login rate-limiting, and `Content-Security-Policy` / `Strict-Transport-Security`
-headers are not yet emitted.
+`Content-Security-Policy` and `Strict-Transport-Security` headers are not yet
+emitted. (CSRF protection — `csrf_token()`/`csrf_verify()` in `bootstrap.php`,
+enforced by `ApiController::requireCsrf()` on every non-GET endpoint — and
+per-IP/per-account login rate-limiting — `UserAuthService::isLoginThrottled()`
+with migration `005_auth_throttle.sql` — are both implemented.)
 
 ## Desktop App (Electron)
 
@@ -456,7 +459,7 @@ npm start
 
 ## Tech Stack
 
-- **Backend:** PHP 7.2+, MySQL 5.7+, PDO
+- **Backend:** PHP 7.4+, MySQL 5.7+, PDO
 - **Frontend:** Vanilla JavaScript (ES6 modules), HTML5, CSS3
 - **Styling:** CSS Custom Properties, Grid, Flexbox
 - **Caching:** Multi-layer (database + local storage + service worker)
