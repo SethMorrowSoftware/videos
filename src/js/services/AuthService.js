@@ -28,25 +28,17 @@ export class AuthError extends Error {
   }
 }
 
-/**
- * Read the per-page CSRF token printed in <head> by csrf_meta_tag().
- * Cached after first read since the token only changes on login/logout.
- */
-let _csrfToken = null;
-function getCsrfToken() {
-  if (_csrfToken !== null) return _csrfToken;
-  const meta = document.querySelector('meta[name="csrf-token"]');
-  _csrfToken = meta ? meta.getAttribute('content') || '' : '';
-  return _csrfToken;
-}
+// CSRF token from the shared single source of truth (utils/csrf.js).
+import { getCsrfToken, setCsrfToken, clearCsrfToken } from '../utils/csrf.js';
 
 /**
- * Force a re-read of the CSRF token. Called after login/register/logout
- * since the server rotates the token on session changes.
+ * Backward-compatible helper: drop the cached token so the next read re-fetches
+ * it from the <meta> tag. The login/register/logout flows below now prefer
+ * setCsrfToken() with the rotated token the server returns, which works even
+ * without a full navigation.
  */
 export function refreshCsrfToken() {
-  _csrfToken = null;
-  return getCsrfToken();
+  return clearCsrfToken();
 }
 
 async function apiCall(path, { method = 'GET', body = null } = {}) {
@@ -171,13 +163,12 @@ export const AuthService = {
       body: { identifier, password, remember, mergeGuest },
     });
     setState({ user: res.user, guest: null });
-    // The server rotates the CSRF token on login; force a reload so the
-    // next call doesn't use the pre-login token from the meta tag.
-    // (Without this, the FIRST post-login request would 403.) We can't
-    // re-read the meta because the page wasn't reloaded -- only a full
-    // navigation refreshes the meta tag. Caller is expected to navigate
-    // immediately after login, so this matters mostly for SPA-style usage.
-    refreshCsrfToken();
+    // The server rotates the CSRF token on login. Adopt the rotated token it
+    // returned so the next state-changing request succeeds even with no full
+    // navigation (a full nav would re-render the meta tag, but SPA-style flows
+    // don't). Fall back to re-reading the meta tag if the server didn't send it.
+    if (res.csrfToken) setCsrfToken(res.csrfToken);
+    else clearCsrfToken();
     return res.user;
   },
 
@@ -187,16 +178,20 @@ export const AuthService = {
       body: { username, email, password, display_name, mergeGuest },
     });
     setState({ user: res.user, guest: null });
-    refreshCsrfToken();
+    if (res.csrfToken) setCsrfToken(res.csrfToken);
+    else clearCsrfToken();
     return res.user;
   },
 
   async logout() {
+    let res = null;
     try {
-      await apiCall('/logout.php', { method: 'POST', body: {} });
+      res = await apiCall('/logout.php', { method: 'POST', body: {} });
     } finally {
       setState({ user: null, guest: null });
-      refreshCsrfToken();
+      // Logout also rotates the server token; adopt it (or re-read meta).
+      if (res && res.csrfToken) setCsrfToken(res.csrfToken);
+      else clearCsrfToken();
     }
   },
 

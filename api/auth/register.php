@@ -60,5 +60,7 @@ try {
 
 $api->ok([
     'user' => $user,
+    // Rotated above; return it so SPA-style callers adopt it without a nav.
+    'csrfToken' => csrf_token(),
     'message' => 'Account created',
 ]);
