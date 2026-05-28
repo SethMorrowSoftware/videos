@@ -274,3 +274,12 @@ The frontend is, on inspection, **already mature and professionally built**. The
 
 > None of items 1–7 are blockers. Items 3 and 4 are the documented bugs that most directly affect the live experience; the rest are incremental polish.
 
+> **Status (remediation phases):**
+> - **#1 Persistent footer — DONE in PR #66 (P5):** shared `partials/footer.php` (archive.org attribution + Report / DMCA / Terms) on all five content pages; styles reuse the design tokens.
+> - **#2 App-load watchdog — DONE in PR #66 (P5):** inline non-module watchdog reveals a recovery message after 8s if `window.__afcReady` isn't set by `app.js`/`player.js`.
+> - **#3 Search double-decode (M15) — FIXED in PR #64 (P3).**
+> - **#4 Centralize CSRF (M10) — FIXED in PR #65 (P4).**
+> - **#5 Empty states — PARTIAL (P5):** confirmed friendly server-rendered empty states on `collections.php` and `collection.php`. Bookmarks/watch-history are count-driven (`account.php`) and list-rendered client-side; flagged to validate the empty branch in a running app rather than edit the tuned UI blind.
+> - **#6 `theme-color` light/dark — DONE in PR #66 (P5).**
+> - **#7 `offline.html` branding — still open** (left as a recommendation).
+
