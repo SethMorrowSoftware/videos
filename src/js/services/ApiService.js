@@ -5,19 +5,12 @@
  * with caching metadata support and error handling
  */
 
-/**
- * Read the per-page CSRF token printed in <head> by csrf_meta_tag().
- * Pulled lazily so we don't fight script load order.
- */
-let _csrfToken = null;
-export function getCsrfToken() {
-    if (_csrfToken !== null) return _csrfToken;
-    const meta = typeof document !== 'undefined'
-        ? document.querySelector('meta[name="csrf-token"]')
-        : null;
-    _csrfToken = meta ? meta.getAttribute('content') || '' : '';
-    return _csrfToken;
-}
+// CSRF token comes from the shared single source of truth (utils/csrf.js) so a
+// post-login token rotation with no full navigation is reflected here too.
+// Imported for internal use and re-exported because PlayerComments imports
+// getCsrfToken from this module.
+import { getCsrfToken } from '../utils/csrf.js';
+export { getCsrfToken };
 
 /**
  * Build the standard request init for a state-changing JSON call. Adds

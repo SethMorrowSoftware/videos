@@ -170,30 +170,42 @@ Permanent cache rows are written with `expires_at = NULL`. That only works if mi
 User-controlled `q` and `collection` are concatenated raw into the Archive.org Lucene query (`AND collection:{...}`). `http_build_query` URL-encodes the result (so this is **not** SSRF and not DB injection), but a caller can still alter query semantics (inject `AND`/`OR`/field filters, break out of the intended collection scope). `sort` is also passed through unvalidated.
 **Fix:** Allow-list `collection` against `[a-zA-Z0-9_.-]`, validate `sort` against the known sort map, and quote user terms.
 
+**Status — FIXED in PR #65.** `collection` and `mediatype` are allow-listed to `[a-zA-Z0-9_.-]` before interpolation, and `sort` is resolved strictly through the known map (unknown → default, never verbatim). The free-text `q` is left as-is (quoting it would break legitimate multi-word search; it reaches archive.org URL-encoded, not the DB).
+
 ### M6. CORS allow-list is derived from the client-controlled `Host` header **[flagged]**
 **Where:** `api/index.php:13-27`.
 `$allowedOrigins` is built from `HTTP_HOST` and a matching `Origin` is reflected into `Access-Control-Allow-Origin`. On a host that doesn't pin `Host`, this can be coerced. Impact is limited (this is the info/router endpoint, no credentials echoed), but the pattern is unsafe and inconsistent with the hardened `api/.htaccess`.
 **Fix:** Drop the dynamic list; compare `parse_url($origin, PHP_URL_HOST)` against `safe_host()`/`APP_URL` only.
+
+**Status — FIXED in PR #65.** `api/index.php` now requires bootstrap and compares the Origin host against `safe_host()` (plus literal localhost/127.0.0.1 for dev); the client-controlled `HTTP_HOST` entry is gone. Adds `Vary: Origin`.
 
 ### M7. `forgot-password` has no per-IP throttle **[flagged]**
 **Where:** `api/auth/forgot-password.php`; `services/Auth/UserAuthService.php:304-342`.
 Reset tokens are capped at 3/hr **per account**, but nothing limits how many distinct emails one client submits. An attacker can loop the endpoint over an email list to generate outbound mail volume and probe response timing. (Login *is* throttled per-IP; the reset flow is not.)
 **Fix:** Apply the same per-IP `auth_attempts`-style throttle to `forgot-password`.
 
+**Status — FIXED in PR #65.** `startPasswordReset()` enforces a per-IP cap (10/hr) recorded in `auth_attempts` behind a `pwreset` marker (`success=1`, so it never counts toward the failed-login throttles). Over the cap returns null — identical to "email unknown".
+
 ### M8. Password-reset email enumeration via timing **[flagged]**
 **Where:** `services/Auth/UserAuthService.php:304-342`.
 The "email unknown" branch returns immediately, while the "email exists" branch does extra DB work + token insert + SMTP send. The response-time delta lets an attacker enumerate registered emails despite the identical user-facing message.
 **Fix:** Normalize work/timing across both branches (or enqueue mail asynchronously).
+
+**Status — FIXED in PR #65.** `forgot-password.php` now emits the identical generic response before any account-specific work and, where `fastcgi_finish_request` is available (PHP-FPM / LiteSpeed), closes the connection before doing the lookup + SMTP send — so response time no longer depends on whether the email is registered.
 
 ### M9. Legacy `AdminAuthService::authenticate` login path is unthrottled **[flagged]**
 **Where:** `services/AdminAuthService.php:24-57`.
 The new `UserAuthService::login` is rate-limited, but the legacy `admin_users` auth path has no throttling and no `auth_attempts` logging, giving an attacker an unthrottled brute-force channel where it's still wired.
 **Fix:** Route the legacy path through the same throttle, or deprecate/remove it post-migration.
 
+**Status — FIXED in PR #65.** `AdminAuthService::authenticate()` now applies a per-IP throttle (same window/cap and `auth_attempts` table as the unified login), throwing when tripped; `AdminBootstrap` catches it and shows the friendly "too many attempts" message.
+
 ### M10. Service worker token / post-login CSRF staleness **[verified]**
 **Where:** `src/js/services/ApiService.js:12`, `src/js/services/CollectionService.js:21`, `src/js/services/AuthService.js:180`; server rotates token at `UserAuthService.php:173`.
 `login()` rotates `$_SESSION['csrf_token']` server-side, but the client's `<meta name="csrf-token">` and the per-module cached `_csrfToken` are not refreshed without a full navigation. A write performed after login *without* navigating would send the stale token and 403. Currently masked because the auth pages navigate (redirect) after login.
 **Fix:** Centralize one token cache and invalidate it on auth-state change, or always re-read the meta tag for state-changing requests.
+
+**Status — FIXED in PR #65.** Added a single CSRF token source (`src/js/utils/csrf.js`) used by ApiService/CollectionService/AuthService. `login`/`register`/`logout` now return the rotated server token and the client adopts it (updating both the shared cache and the `<meta>` tag), so a state-changing request after a no-navigation auth change no longer 403s.
 
 ### M11. `progress_percent` is not clamped **[flagged]**
 **Where:** `services/User/WatchHistoryService.php:35-48`.
@@ -214,10 +226,14 @@ Self-service `delete()` decrements the parent's `reply_count`; the admin `modera
 Deleting a user cascades to their comments, and because replies cascade on `parent_id`, deleting one user can wipe **other users' replies** under those threads — contradicting the soft-delete "keep threads for consistency" design.
 **Fix:** `ON DELETE SET NULL` on `video_comments.user_id` and render "deleted user".
 
+**Status — ESCALATED (not in PR #65).** This is a foreign-key schema change: on existing installs it requires making `user_id` nullable and dropping an auto-named FK (`video_comments_ibfk_1`) in a migration that can't be exercised without a live DB, plus INNER→LEFT JOIN changes across ~5 query sites in CommentService/MetricsService and "deleted user" rendering. Deferred to its own focused, DB-testable change rather than bundled into the P4 hardening PR.
+
 ### M14. Electron static mount serves PHP source and `.env` in cleartext **[flagged]**
 **Where:** `electron/server.js:282-285`.
 `express.static(APP_ROOT)` serves the whole project root. PHP isn't executed, but the **raw source** of `db/config.php`, `bootstrap.php`, `.env`, and `.git/` is served as plain text — any page in the Electron window could `fetch('/.env')` and read DB credentials. (Secondary: Electron is optional and not part of the cPanel deployment.)
 **Fix:** Serve only an explicit static subtree, or denylist `db/`, `.env`, `.git`, `*.php`.
+
+**Status — FIXED in PR #65.** A denylist middleware ahead of `express.static` blocks `.env`/`.git`/`.htaccess`, `*.php`/`*.sql`/`*.sh`/`*.log`, and the `db/`+`electron/` source dirs (directory patterns anchored to the root so the frontend's `src/js/services` modules still load).
 
 ### M15. `urlManager.parseUrlState` double-decodes the search param **[verified]**
 **Where:** `src/js/utils/urlManager.js:57`.
