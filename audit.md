@@ -149,6 +149,8 @@ Permanent cache rows are written with `expires_at = NULL`. That only works if mi
 `update()` regenerates `slug` from the new name on every rename, so any previously-shared `/c/{username}/{old-slug}` link 404s — defeating the purpose of shareable collections.
 **Fix:** Keep the existing slug on rename (only mint a new one on explicit request), or store slug history and 301 old → current.
 
+**Status — FIXED in PR #64.** `update()` no longer regenerates the slug on rename; it stays as minted at creation, so previously-shared `/c/{username}/{slug}` links keep resolving.
+
 ### M5. Lucene query injection / unvalidated `collection` into the archive.org query **[flagged]**
 **Where:** `services/ArchiveOrgService.php:424-461`; reached from `api/search.php:17-18`.
 User-controlled `q` and `collection` are concatenated raw into the Archive.org Lucene query (`AND collection:{...}`). `http_build_query` URL-encodes the result (so this is **not** SSRF and not DB injection), but a caller can still alter query semantics (inject `AND`/`OR`/field filters, break out of the intended collection scope). `sort` is also passed through unvalidated.
@@ -184,10 +186,14 @@ The new `UserAuthService::login` is rate-limited, but the legacy `admin_users` a
 `$percent = ($currentTime / $duration) * 100` with no `[0,100]` clamp and no rejection of negative/over-duration inputs. A client can store >100% (or negative), skewing "continue watching" UI and engagement metrics.
 **Fix:** `max(0, min(100, $percent))` and reject negative `currentTime`/`duration`.
 
+**Status — FIXED in PR #64.** `updateProgress()` clamps `currentTime`/`duration` to ≥0 and bounds the derived `progress_percent` to `[0,100]`.
+
 ### M12. Admin moderation `delete` doesn't decrement parent `reply_count` **[flagged]**
 **Where:** `services/Comments/CommentService.php:365-367` vs self-service `delete()` at `:184-189`.
 Self-service `delete()` decrements the parent's `reply_count`; the admin `moderate(…, 'delete')` path soft-deletes without decrementing it. The displayed reply count then overstates visible replies and "show more replies" can over-report.
 **Fix:** Decrement the parent `reply_count` in the moderation delete branch too.
+
+**Status — FIXED in PR #64.** `moderate(…, 'delete')` now decrements the parent's `reply_count` when removing a reply, matching self-service `delete()`, and guards on the prior status so a repeat delete can't double-decrement.
 
 ### M13. `ON DELETE CASCADE` on `video_comments.user_id` destroys whole threads **[flagged]**
 **Where:** `db/migrations/006_comments.sql:33-34`.
@@ -203,6 +209,8 @@ Deleting a user cascades to their comments, and because replies cascade on `pare
 **Where:** `src/js/utils/urlManager.js:57`.
 `decodeURIComponent(params.get('search'))` — `URLSearchParams.get()` already returns a decoded value, so this decodes twice. A search containing a literal `%` throws `URIError`; `+`/`%`-sequences corrupt. The decoded value is then written into the search input.
 **Fix:** Use `params.get('search')` directly; drop the extra `decodeURIComponent`.
+
+**Status — FIXED in PR #64.** `parseUrlState()` uses the already-decoded `params.get('search')` value directly (`|| null` preserves the absent/empty → null contract), so a `%` in the query no longer throws `URIError`.
 
 ---
 
