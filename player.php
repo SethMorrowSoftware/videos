@@ -242,9 +242,9 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
 
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="player-styles.css">
-  <link rel="stylesheet" href="auth-styles.css">
+  <link rel="stylesheet" href="<?= escapeAttr(asset_url('styles.css')) ?>">
+  <link rel="stylesheet" href="<?= escapeAttr(asset_url('player-styles.css')) ?>">
+  <link rel="stylesheet" href="<?= escapeAttr(asset_url('auth-styles.css')) ?>">
 
   <style>
     :root {

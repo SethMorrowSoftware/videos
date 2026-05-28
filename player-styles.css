@@ -1336,34 +1336,60 @@
     flex-shrink: 0;
   }
 
-  .player-controls-bar {
+  /* ----------------------------------------------------------------
+     MOBILE CONTROLS — keep the video frame clean.
+
+     Native <video controls> already gives mobile users play/seek/
+     volume/fullscreen/Picture-in-Picture/captions/playback-speed, so
+     every custom overlay button here is redundant on a phone — with
+     ONE exception: video quality. Native controls can't switch between
+     the separate progressive MP4 files we stream from Archive.org, so
+     the quality picker has to stay reachable.
+
+     So instead of a full-width strip across the top of the video, we
+     hide everything except quality and tuck that single chip into the
+     bottom-right corner. Result: nothing covers the picture except, at
+     most, one small quality chip — exactly where it was requested. */
+  .player-controls-bar,
+  .player-cinema:fullscreen .player-controls-bar,
+  .player-cinema:-webkit-full-screen .player-controls-bar {
+    /* Re-anchor: was top:52px / left:0 / right:0 (a full-width strip
+       pinned to the top of the frame). Now a corner cluster. */
+    top: auto;
+    left: auto;
+    right: 8px;
+    /* Float ABOVE the native HTML5 control bar (~48px tall) so the chip
+       never lands on top of the native fullscreen / overflow buttons,
+       which share the bottom-right corner. The native bar auto-hides,
+       so most of the time the chip simply sits in the lower-right. */
+    bottom: 56px;
+    width: auto;
+    padding: 0;
     opacity: 1;
-    padding: 6px 12px;
-    /* Kill the full-width darkening gradient on mobile. The gradient was
-       painted permanently here (because :hover doesn't exist on touch),
-       which obscured the top ~50px of the video frame even on idle. Each
-       remaining pill carries its own backdrop below so they stay readable
-       on bright video content. */
     background: transparent;
-    /* Important: do NOT set pointer-events: auto on the bar itself.
-       Children get pointer-events: auto from the base .controls-bar-left/right
-       rule, so buttons remain tappable; the (mostly empty) bar area stays
-       click-through so taps on it reach the native video controls instead
-       of being swallowed by an invisible overlay. */
+    justify-content: flex-end;
   }
 
-  /* Hide the playback-speed pill on mobile. Mobile browsers expose speed via
-     the native HTML5 video kebab menu, so the custom pill is redundant.
-     Combined with the transparent bar background above and the bar's
-     base pointer-events: none, this leaves single-episode / single-quality
-     videos (the common case) with no visible or interactive overlay at
-     all. Pill stays available on tablets and desktop. */
-  #speedSelector {
+  /* Episode prev/next + the "3 / 12" indicator: redundant with the
+     playlist below the video (plus auto-advance and the Up Next card),
+     and the only reason the bar ever spanned the full width. Dropping
+     the whole left group lets the bar shrink to a corner chip. */
+  .controls-bar-left {
     display: none;
   }
 
-  /* Without the gradient backdrop above, the buttons need their own dark
-     chip so they don't disappear into bright video frames. */
+  /* Captions, Picture-in-Picture and playback speed are all reachable
+     from the native video controls on mobile — don't duplicate them as
+     overlay chips. (!important so the JS show/hide that toggles inline
+     display can't re-reveal them on a phone.) */
+  #speedSelector,
+  #captionsBtn,
+  #pipBtn {
+    display: none !important;
+  }
+
+  /* The lone survivor: a compact, legible quality chip. Its own dark
+     backdrop keeps it readable on bright video frames. */
   .player-controls-bar .pctl-btn {
     background: rgba(0, 0, 0, 0.6);
     border-color: rgba(255, 255, 255, 0.15);
@@ -1375,12 +1401,14 @@
     background: rgba(0, 0, 0, 0.75);
   }
 
-  .episode-indicator {
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-radius: 8px;
-    padding: 4px 10px;
+  /* The quality menu now opens UPWARD: its button sits at the bottom of
+     the frame, so the default downward drop would fall behind the
+     native controls or off the video entirely. Right-aligned to the
+     corner. */
+  #qualitySelector .quality-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    right: 0;
   }
 
   /* Description toggle: full row, taller tap target. */
