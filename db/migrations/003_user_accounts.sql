@@ -27,18 +27,23 @@
 -- 1. Extend `users` with account fields
 -- --------------------------------------------------
 
-ALTER TABLE users
-    ADD COLUMN username VARCHAR(50) NULL AFTER id,
-    ADD COLUMN email VARCHAR(255) NULL AFTER username,
-    ADD COLUMN password_hash VARCHAR(255) NULL AFTER email,
-    ADD COLUMN display_name VARCHAR(100) NULL AFTER password_hash,
-    ADD COLUMN avatar_url VARCHAR(500) NULL AFTER display_name,
-    ADD COLUMN role ENUM('guest','viewer','editor','admin') NOT NULL DEFAULT 'guest' AFTER avatar_url,
-    ADD COLUMN is_guest TINYINT(1) NOT NULL DEFAULT 1 AFTER role,
-    ADD COLUMN email_verified_at TIMESTAMP NULL,
-    ADD UNIQUE KEY uk_username (username),
-    ADD UNIQUE KEY uk_email (email),
-    ADD INDEX idx_role (role);
+-- One ADD per statement (NOT a single multi-clause ALTER). The installer
+-- runs each `;`-separated statement independently and swallows the
+-- "Duplicate column" / "Duplicate key name" error a re-run produces. A single
+-- multi-clause ALTER instead aborts the WHOLE statement on the first
+-- already-existing clause, so any clause added to this migration later would
+-- never apply on an existing install. Splitting keeps it truly re-runnable.
+ALTER TABLE users ADD COLUMN username VARCHAR(50) NULL AFTER id;
+ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL AFTER username;
+ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL AFTER email;
+ALTER TABLE users ADD COLUMN display_name VARCHAR(100) NULL AFTER password_hash;
+ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL AFTER display_name;
+ALTER TABLE users ADD COLUMN role ENUM('guest','viewer','editor','admin') NOT NULL DEFAULT 'guest' AFTER avatar_url;
+ALTER TABLE users ADD COLUMN is_guest TINYINT(1) NOT NULL DEFAULT 1 AFTER role;
+ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP NULL;
+ALTER TABLE users ADD UNIQUE KEY uk_username (username);
+ALTER TABLE users ADD UNIQUE KEY uk_email (email);
+ALTER TABLE users ADD INDEX idx_role (role);
 
 -- --------------------------------------------------
 -- 2. Copy any existing admin_users rows into `users`
