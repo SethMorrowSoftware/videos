@@ -278,6 +278,25 @@ function startServer() {
       res.sendStatus(200);
     });
 
+    // Security: never serve source or secrets as static files. PHP is NOT
+    // executed here, so without this block any page in the Electron window
+    // could fetch('/.env') or '/db/config.php' and read DB credentials and
+    // server source in cleartext. Pages are produced by the explicit routes
+    // above, so no .php / source file ever needs static serving. The directory
+    // patterns are anchored to the root so the frontend's own src/js/services/
+    // and src/js/components/ modules keep loading.
+    const DENY_EXT = /\.(php|sql|sh|log|lock|ini)$/i;
+    const DENY_DOTFILE = /(^|\/)\.(env|git|ht)/i;       // .env(.example), .git/, .htaccess
+    const DENY_DIR = /^\/(db|electron)\//i;             // server-side source dirs
+    app.use((req, res, next) => {
+      let p;
+      try { p = decodeURIComponent(req.path); } catch { p = req.path; }
+      if (DENY_EXT.test(p) || DENY_DOTFILE.test(p) || DENY_DIR.test(p)) {
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      next();
+    });
+
     // Serve static files (CSS, JS, images, etc.)
     app.use(express.static(APP_ROOT, {
       index: false, // We handle index ourselves
