@@ -120,7 +120,7 @@ class MetricsService {
         $searches = $this->intQuery("SELECT COUNT(*) FROM search_history");
         $searches7d = $this->intQuery(
             "SELECT COUNT(*) FROM search_history
-             WHERE created_at > (NOW() - INTERVAL 7 DAY)"
+             WHERE searched_at > (NOW() - INTERVAL 7 DAY)"
         );
         return [
             'staff_picks' => $picks,
@@ -178,9 +178,9 @@ class MetricsService {
                         WHERE last_watched > (NOW() - INTERVAL ? DAY)
                         GROUP BY day ORDER BY day";
             case 'searches':
-                return "SELECT DATE(created_at) AS day, COUNT(*) AS count
+                return "SELECT DATE(searched_at) AS day, COUNT(*) AS count
                         FROM search_history
-                        WHERE created_at > (NOW() - INTERVAL ? DAY)
+                        WHERE searched_at > (NOW() - INTERVAL ? DAY)
                         GROUP BY day ORDER BY day";
             default:
                 return null;
@@ -383,6 +383,26 @@ class MetricsService {
     public function setRole(int $userId, string $role): void {
         if (!in_array($role, ['admin', 'editor', 'viewer'], true)) {
             throw new RuntimeException("Invalid role");
+        }
+        // Never let the org strip its last administrator: that locks everyone
+        // out of the admin panel with no UI recovery. Only relevant when this
+        // change *removes* admin from someone who currently holds it. The API
+        // already blocks demoting your *own* role, but this guard lives in the
+        // service so it also covers a second admin (or a stale admin session)
+        // demoting the real last admin through the same endpoint.
+        if ($role !== 'admin') {
+            $currentRole = (string)$this->db->fetchColumn(
+                "SELECT role FROM users WHERE id = ? AND is_guest = 0",
+                [$userId]
+            );
+            if ($currentRole === 'admin') {
+                $adminCount = (int)$this->db->fetchColumn(
+                    "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_guest = 0"
+                );
+                if ($adminCount <= 1) {
+                    throw new RuntimeException("You can't remove the last administrator.");
+                }
+            }
         }
         $this->db->update('users', ['role' => $role], 'id = ? AND is_guest = 0', [$userId]);
     }
