@@ -26,8 +26,8 @@ class SearchHistoryService {
              FROM search_history
              WHERE user_id = ?
              ORDER BY searched_at DESC
-             LIMIT ?",
-            [$userId, $limit]
+             LIMIT " . (int)$limit,
+            [$userId]
         );
     }
 

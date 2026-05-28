@@ -96,6 +96,14 @@ $action = $body['action'] ?? '';
 try {
     switch ($action) {
         case 'set-role': {
+            // User-role management is ADMIN-ONLY. requireAdmin() also admits
+            // 'editor' (so editors can moderate comments below), so this
+            // action must be gated separately — otherwise an editor could
+            // POST {role:'admin'} and promote themselves (the self-demote
+            // guard below only blocks *lowering* your own role).
+            if (($admin['role'] ?? '') !== 'admin') {
+                $api->error('Only administrators can change user roles.', 403);
+            }
             // Demoting yourself out of admin role would lock you out.
             $userId = (int)$api->required($body, 'user_id');
             $role = ApiController::sanitizeEnum(

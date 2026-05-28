@@ -118,8 +118,8 @@ class CollectionService {
              JOIN users u ON u.id = c.user_id
              WHERE c.is_public = 1 AND u.is_guest = 0
              ORDER BY c.updated_at DESC
-             LIMIT ? OFFSET ?",
-            [$limit, $offset]
+             LIMIT " . (int)$limit . " OFFSET " . (int)$offset,
+            []
         );
     }
 

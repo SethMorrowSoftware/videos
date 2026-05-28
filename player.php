@@ -265,6 +265,18 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
 </head>
 <body class="player-page">
   <a class="skip-link" href="#playerCinema">Skip to player</a>
+  <?php
+    $noscriptUrl = !empty($videoId)
+      ? 'https://archive.org/details/' . rawurlencode($videoId)
+      : 'https://archive.org/details/movies';
+  ?>
+  <noscript>
+    <div class="noscript-banner" role="alert">
+      <h2>JavaScript is required to play videos</h2>
+      <p>This player streams films directly from the Internet Archive and needs JavaScript to run. Please enable JavaScript and reload the page.</p>
+      <p>You can also watch this title directly at <a href="<?= htmlspecialchars($noscriptUrl, ENT_QUOTES) ?>" target="_blank" rel="noopener">archive.org</a>.</p>
+    </div>
+  </noscript>
 
   <!-- Player Header -->
   <header class="player-header" id="playerHeader">
