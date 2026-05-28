@@ -261,7 +261,7 @@ class UserAuthService {
             $ipHash = hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown');
             $count = (int)$this->db->fetchColumn(
                 "SELECT COUNT(*) FROM auth_attempts
-                 WHERE ip_hash = ? AND identifier = 'pwreset'
+                 WHERE ip_hash = ? AND identifier = 'pwreset' AND success = 1
                  AND created_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)",
                 [$ipHash, self::RESET_THROTTLE_WINDOW_MINUTES]
             );
