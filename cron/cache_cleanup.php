@@ -6,8 +6,10 @@
  * cPanel: Add to Cron Jobs with: php /home/yourusername/public_html/videos/cron/cache_cleanup.php
  */
 
-// Prevent web access - CLI only for security
-if (php_sapi_name() !== 'cli') {
+// Prevent web access - CLI only for security. Some cron daemons invoke PHP
+// under a cgi-fcgi SAPI rather than 'cli'; defined('STDIN') is true for any
+// real command-line invocation, so accept that too (a web request never has it).
+if (php_sapi_name() !== 'cli' && !defined('STDIN')) {
     http_response_code(403);
     die('This script must be run from the command line');
 }
