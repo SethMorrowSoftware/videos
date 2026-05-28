@@ -209,6 +209,10 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
   <title><?= escapeAttr($pageTitle) ?></title>
   <meta name="description" content="<?= escapeAttr($ogDescription) ?>" />
   <meta name="theme-color" content="<?= escapeAttr($site_settings['brandColor']) ?>" />
+  <!-- Per-scheme browser chrome (brand-color above is the fallback). Matches
+       the page background tokens so light mode isn't tinted. -->
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0b" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="<?= escapeAttr($ogType) ?>" />
@@ -577,6 +581,35 @@ $initialTheme = $site_settings['defaultTheme'] === 'system' ? 'dark' : $site_set
         }
       });
     })();
+  </script>
+
+  <?php include __DIR__ . '/partials/footer.php'; ?>
+
+  <script>
+  /* App-load watchdog (non-module) — see index.php for rationale. player.js
+     sets window.__afcReady as soon as it runs; if that hasn't happened within
+     the window we reveal a recovery message instead of a blank player. */
+  (function () {
+    setTimeout(function () {
+      if (window.__afcReady) return;
+      var msg = "We couldn’t load the player. Check your connection and try again, or open this item on archive.org.";
+      var el = document.getElementById('error');
+      if (el) {
+        el.innerHTML = '<p>' + msg + '</p><p>'
+          + '<button type="button" onclick="location.reload()">Retry</button> '
+          + '<a href="https://archive.org/details/movies" target="_blank" rel="noopener">Open archive.org</a></p>';
+        el.hidden = false;
+      } else if (document.body) {
+        var b = document.createElement('div');
+        b.setAttribute('role', 'alert');
+        b.style.cssText = 'position:fixed;left:16px;right:16px;top:16px;z-index:10000;background:#1d1d22;color:#f5f5f7;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:16px;font:14px/1.5 system-ui,-apple-system,sans-serif';
+        b.innerHTML = '<strong>Couldn’t load.</strong> ' + msg
+          + ' <button type="button" onclick="location.reload()" style="margin-left:8px">Retry</button>'
+          + ' <a href="https://archive.org/details/movies" target="_blank" rel="noopener" style="color:#8ab4f8">archive.org</a>';
+        document.body.appendChild(b);
+      }
+    }, 8000);
+  })();
   </script>
 
   <script type="module" src="player.js"></script>
