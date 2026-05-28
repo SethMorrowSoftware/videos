@@ -362,9 +362,25 @@ class CommentService {
             case 'restore':
                 $this->db->update('video_comments', ['status' => 'visible'], 'id = ?', [$commentId]);
                 break;
-            case 'delete':
+            case 'delete': {
+                // Match self-service delete(): when soft-deleting a reply, also
+                // decrement the parent's reply_count so the displayed count and
+                // "show more replies" don't over-report. Read the prior status
+                // first and guard on it so a repeated moderate('delete') on an
+                // already-deleted comment can't double-decrement.
+                $target = $this->db->fetchOne(
+                    "SELECT parent_id, status FROM video_comments WHERE id = ?",
+                    [$commentId]
+                );
                 $this->db->update('video_comments', ['body' => '', 'status' => 'deleted'], 'id = ?', [$commentId]);
+                if ($target && $target['status'] !== 'deleted' && !empty($target['parent_id'])) {
+                    $this->db->query(
+                        "UPDATE video_comments SET reply_count = GREATEST(0, reply_count - 1) WHERE id = ?",
+                        [(int)$target['parent_id']]
+                    );
+                }
                 break;
+            }
             default:
                 throw new RuntimeException("Invalid moderation action");
         }
