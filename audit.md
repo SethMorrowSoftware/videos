@@ -104,12 +104,16 @@ Registration is publicly open and independent of `install.php`. `register()` doe
 
 **Fix:** Create the admin only via `install.php` (always register web signups as `viewer`), or wrap the count+insert in a transaction with a row lock / one-shot `install_state` flag so the bootstrap admin can't be won by a public registrant or a race.
 
+**Status — FIXED in PR #62.** Chose the install-gate approach: `register()` now always assigns `role='viewer'` (the COUNT-then-insert auto-promotion is gone). The bootstrap admin is created solely by `install.php`'s direct `INSERT` (`role='admin'`), which is independent of `register()`, so the installer flow is unchanged. Closes both the install-gate hole and the TOCTOU race.
+
 ### H3. Admin "searches" metrics are silently always zero (wrong column) **[verified]**
 **Where:** `services/Admin/MetricsService.php:121-124` (`contentTotals` `searches_7d`) and `:181-184` (`dailySeries('searches')`).
 
 Both query `FROM search_history WHERE created_at > ...`, but `search_history` defines only `searched_at` (migration `001:201`). The queries throw `Unknown column 'created_at'`, which `intQuery`/`dailySeries` catch and convert to `0` / an empty series. The admin dashboard's 7-day search count and the searches chart are therefore **permanently zero** with no error shown — a silent data-correctness bug.
 
 **Fix:** Use `searched_at` in both queries.
+
+**Status — FIXED in PR #62.** Both queries (`contentTotals` `searches_7d` and `dailySeriesSql('searches')`) now select/filter on `searched_at`. The `created_at` references on `users`/`video_comments` (which do have that column) were left untouched.
 
 ### H4. Last-admin lockout via `set-role` **[verified]**
 **Where:** `api/admin/metrics.php:98-112`; `services/Admin/MetricsService.php:383-388`.
@@ -118,12 +122,16 @@ Both query `FROM search_history WHERE created_at > ...`, but `search_history` de
 
 **Fix:** Before demoting any `admin`, count remaining admins and refuse if the change would reach zero.
 
+**Status — FIXED in PR #62.** `MetricsService::setRole()` now counts remaining `admin`s and throws (API → 400) when the change would remove the last one. The guard lives in the service so it covers a second admin or a stale admin session, not just the API's self-demote block.
+
 ### H5. SMTP envelope/header `To:` not CRLF-sanitized (defense-in-depth gap) **[flagged]**
 **Where:** `services/Mail/MailService.php:188-191`.
 
 `$subject` and `$from` are passed through `stripCrlf()`, but `$to` is written into `RCPT TO:<$to>` and the `To:` header relying solely on the upstream `FILTER_VALIDATE_EMAIL`. That validator does reject embedded newlines, so this is not currently exploitable — but `$to` is the one field without the defense-in-depth strip the others get.
 
 **Fix:** Run `$to` (and every value placed into an SMTP command or header) through `stripCrlf()` too.
+
+**Status — FIXED in PR #62.** `$to` is now `stripCrlf()`'d at the top of `sendViaSmtp()`, before it reaches `RCPT TO:<$to>` and the `To:` header.
 
 ---
 
