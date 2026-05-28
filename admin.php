@@ -43,6 +43,9 @@ require_once __DIR__ . '/admin/controllers/AdminBootstrap.php';
         </script>
         <script src="admin/assets/admin.js"></script>
         <script src="admin/assets/admin-metrics.js"></script>
+        <?php if (!empty($canMaintain)): ?>
+        <script src="admin/assets/admin-maintenance.js"></script>
+        <?php endif; ?>
     <?php endif; ?>
 </body>
 </html>
