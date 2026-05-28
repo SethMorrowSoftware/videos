@@ -82,6 +82,24 @@
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    /**
+     * Multipart POST for the restore upload. Crucially does NOT set
+     * Content-Type — the browser must add the multipart boundary itself.
+     * CSRF still rides in the X-CSRF-Token header.
+     */
+    async function uploadForm(formData) {
+        const res = await fetch(API, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-Token': csrfToken() },
+            body: formData,
+        });
+        if (res.status === 401 || res.status === 403) { handleAuthLost(); throw new Error('Session expired'); }
+        const json = await res.json().catch(() => ({ success: false, error: 'Bad response' }));
+        if (!res.ok || !json.success) throw new Error(json.error || 'Request failed');
+        return json;
+    }
+
     // -------- formatters --------
     function escapeHtml(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
@@ -296,6 +314,60 @@
                     } catch (err) {
                         showResultReset(escapeHtml(err.message || 'Reset failed'), true);
                         toast(err.message || 'Reset failed', 'error');
+                    }
+                });
+            });
+        }
+
+        // Restore from an uploaded backup (file + type-to-confirm)
+        const restoreFile = document.getElementById('maintRestoreFile');
+        const restoreConfirm = document.getElementById('maintRestoreConfirm');
+        const restoreSkip = document.getElementById('maintRestoreSkip');
+        const restoreBtn = document.getElementById('maintRestoreBtn');
+        if (restoreFile && restoreConfirm && restoreBtn) {
+            const expectedR = (restoreConfirm.getAttribute('data-expected') || '').trim().toLowerCase();
+            const syncRestore = () => {
+                const hasFile = restoreFile.files && restoreFile.files.length > 0;
+                restoreBtn.disabled = !(hasFile && restoreConfirm.value.trim().toLowerCase() === expectedR);
+            };
+            restoreFile.addEventListener('change', syncRestore);
+            restoreConfirm.addEventListener('input', syncRestore);
+            syncRestore();
+
+            restoreBtn.addEventListener('click', () => {
+                if (restoreBtn.disabled) return;
+                const file = restoreFile.files && restoreFile.files[0];
+                if (!file) return;
+                if (!window.confirm('Restoring overwrites the current database with "' + file.name + '". This cannot be undone except from a backup. Continue?')) {
+                    return;
+                }
+                const fd = new FormData();
+                fd.append('action', 'restore');
+                fd.append('backup', file);
+                fd.append('confirm', restoreConfirm.value);
+                fd.append('skip_safety', (restoreSkip && restoreSkip.checked) ? '1' : '0');
+
+                withBusy(restoreBtn, 'Restoring…', async () => {
+                    try {
+                        const { result } = await uploadForm(fd);
+                        let msg = `Applied ${formatCount(result.applied)} of ${formatCount(result.statements)} statement(s)`;
+                        if (result.failed) msg += `, ${formatCount(result.failed)} failed`;
+                        msg += '.';
+                        if (result.safety_snapshot) {
+                            msg += ` A safety backup was saved as <code>backups/${escapeHtml(result.safety_snapshot)}</code>.`;
+                        }
+                        if (result.errors && result.errors.length) {
+                            msg += '<br>First error(s): ' + result.errors.map(escapeHtml).join('; ');
+                        }
+                        showResult('maintRestoreResult', msg, result.failed > 0);
+                        toast(result.failed ? 'Restore finished with errors' : 'Restore complete', result.failed ? 'error' : 'success');
+                        restoreConfirm.value = '';
+                        restoreFile.value = '';
+                        syncRestore();
+                        loadStatus(true);
+                    } catch (err) {
+                        showResult('maintRestoreResult', escapeHtml(err.message || 'Restore failed'), true);
+                        toast(err.message || 'Restore failed', 'error');
                     }
                 });
             });

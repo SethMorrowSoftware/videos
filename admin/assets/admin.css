@@ -2124,6 +2124,12 @@
             border-radius: var(--radius-md); color: var(--text-primary); font-size: 14px;
         }
         .maint-input:focus { outline: none; border-color: var(--accent); }
+        .maint-restore-fields { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+        .maint-restore-fields input[type="file"] { padding: 8px 12px; cursor: pointer; }
+        .maint-restore-skip { padding: 0; }
+        .maint-result code {
+            background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 4px; font-size: 0.9em;
+        }
         @media (max-width: 640px) {
             .maint-task { flex-direction: column; align-items: flex-start; }
             .maint-confirm { flex-direction: column; align-items: stretch; }

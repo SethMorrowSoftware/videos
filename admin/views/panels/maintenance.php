@@ -63,6 +63,46 @@ $maintSiteName = $site_settings['siteName'] ?? 'Archive Film Club';
                         </div>
                     </div>
 
+                    <!-- Restore -->
+                    <div class="card maint-danger">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Restore from backup</h2>
+                                <p class="card-subtitle">Replace the current database with a backup file</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="maint-task">
+                                <div class="maint-task-info">
+                                    <div class="toggle-description">
+                                        Upload a <code>.sql</code> (or <code>.sql.gz</code>) backup produced by this tool. It runs
+                                        <code>DROP</code>/<code>CREATE</code>/<code>INSERT</code> over your tables, so it
+                                        <strong>overwrites</strong> their current contents. A full server-side safety backup is taken
+                                        automatically first (kept under <code>backups/</code>) unless you skip it.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="maint-restore-fields">
+                                <input type="file" id="maintRestoreFile" class="maint-input" accept=".sql,.gz,.sql.gz" aria-label="Backup file">
+
+                                <label class="maint-radio maint-restore-skip">
+                                    <input type="checkbox" id="maintRestoreSkip">
+                                    <span>Skip the automatic safety backup (I already have one). Faster, but no built-in rollback.</span>
+                                </label>
+
+                                <div class="maint-confirm">
+                                    <label for="maintRestoreConfirm">Type <code><?= htmlspecialchars($maintSiteName, ENT_QUOTES) ?></code> to confirm:</label>
+                                    <input type="text" id="maintRestoreConfirm" class="maint-input" autocomplete="off"
+                                           data-expected="<?= htmlspecialchars($maintSiteName, ENT_QUOTES) ?>"
+                                           placeholder="<?= htmlspecialchars($maintSiteName, ENT_QUOTES) ?>">
+                                    <button class="btn btn-danger" id="maintRestoreBtn" type="button" disabled>Restore database</button>
+                                </div>
+                            </div>
+                            <div id="maintRestoreResult" class="maint-result" hidden></div>
+                        </div>
+                    </div>
+
                     <!-- Refresh & maintenance -->
                     <div class="card">
                         <div class="card-header">

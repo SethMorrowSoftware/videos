@@ -24,6 +24,14 @@ class MaintenanceService
     private $pdo;
     /** @var string */
     private $dbName;
+    /** @var resource|null When set, dump output is written here instead of echoed to the client. */
+    private $sink = null;
+
+    /**
+     * First-line marker written into every backup. Restore refuses any file
+     * that doesn't carry it, so a stray .sql can't be executed by accident.
+     */
+    private const BACKUP_MARKER = 'Archive Film Club SQL backup';
 
     /**
      * Cache tables hold only regenerable data (re-fetched from Archive.org).
@@ -159,7 +167,7 @@ class MaintenanceService
 
         // Header marker — restore validates the first line before executing,
         // so a stray .sql can't be fed in by accident.
-        $this->out("-- Archive Film Club SQL backup\n");
+        $this->out('-- ' . self::BACKUP_MARKER . "\n");
         $this->out('-- generated: ' . gmdate('c') . "\n");
         $this->out('-- database: ' . $this->dbName . "\n");
         $this->out('-- tables: ' . count($tables) . ($includeCaches ? '' : ' (caches excluded)') . "\n");
@@ -173,6 +181,27 @@ class MaintenanceService
 
         $this->out("\nSET FOREIGN_KEY_CHECKS=1;\n");
         $this->flush();
+    }
+
+    /**
+     * Write a full SQL dump to a file (used for the pre-restore safety
+     * snapshot). Returns false if the file can't be opened. Reuses the exact
+     * same dump routine as streamBackup() via the output sink.
+     */
+    public function backupToFile(string $path, bool $includeCaches = true): bool
+    {
+        $fh = fopen($path, 'wb');
+        if ($fh === false) {
+            return false;
+        }
+        $this->sink = $fh;
+        try {
+            $this->streamBackup($includeCaches);
+        } finally {
+            fclose($fh);
+            $this->sink = null;
+        }
+        return true;
     }
 
     /**
@@ -448,6 +477,257 @@ class MaintenanceService
     }
 
     // =====================================================
+    // RESTORE
+    // =====================================================
+
+    /**
+     * Restore the database from an uploaded backup file (.sql or .sql.gz)
+     * produced by this tool.
+     *
+     * Flow: read (+gunzip) → validate the header marker → take a full
+     * server-side safety snapshot (unless skipped) → execute every statement
+     * with FK checks off → reset OPcache. Because MySQL DDL auto-commits,
+     * a restore is NOT atomic — the safety snapshot is the rollback path.
+     *
+     * @param array $file   a $_FILES entry
+     * @param bool  $skipSafety skip the automatic pre-restore snapshot
+     * @throws RuntimeException on a bad upload / non-backup file / no rollback
+     */
+    public function restoreFromUpload(array $file, bool $skipSafety = false): array
+    {
+        @set_time_limit(0);
+
+        $tmp = $file['tmp_name'] ?? '';
+        if ($tmp === '' || !is_uploaded_file($tmp)) {
+            throw new RuntimeException('No uploaded backup file was found.');
+        }
+
+        $sql = file_get_contents($tmp);
+        if ($sql === false || $sql === '') {
+            throw new RuntimeException('The uploaded backup file is empty or unreadable.');
+        }
+
+        // Transparently accept a gzip-compressed dump (magic bytes 1f 8b).
+        if (substr($sql, 0, 2) === "\x1f\x8b") {
+            $decoded = function_exists('gzdecode') ? @gzdecode($sql) : false;
+            if ($decoded === false) {
+                throw new RuntimeException('Could not decompress the gzip backup on this server.');
+            }
+            $sql = $decoded;
+        }
+
+        // Refuse anything that isn't one of our backups.
+        if (strpos(substr($sql, 0, 1000), self::BACKUP_MARKER) === false) {
+            throw new RuntimeException('This file is not an Archive Film Club backup (the header marker is missing).');
+        }
+
+        $snapshot = null;
+        if (!$skipSafety) {
+            $snapshot = $this->writeSafetySnapshot();
+            if ($snapshot === null) {
+                throw new RuntimeException(
+                    'Could not write an automatic safety backup (check write permissions on the backups/ folder). '
+                    . 'Download a backup yourself, then re-run with "skip the automatic safety backup".'
+                );
+            }
+        }
+
+        $statements = self::splitSqlStatements($sql);
+        $applied = 0;
+        $failed = 0;
+        $errors = [];
+
+        $this->pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+        try {
+            foreach ($statements as $statement) {
+                $statement = trim($statement);
+                if ($statement === '') {
+                    continue;
+                }
+                try {
+                    $this->pdo->exec($statement);
+                    $applied++;
+                } catch (Throwable $e) {
+                    $failed++;
+                    if (count($errors) < 10) {
+                        $errors[] = substr($e->getMessage(), 0, 200);
+                    }
+                }
+            }
+        } finally {
+            // Re-enable FK checks even if a statement threw fatally.
+            try { $this->pdo->exec('SET FOREIGN_KEY_CHECKS=1'); } catch (Throwable $e) {}
+        }
+
+        // The bytecode/object cache may reference the pre-restore schema.
+        if (function_exists('opcache_reset')) {
+            @opcache_reset();
+        }
+
+        return [
+            'statements' => count($statements),
+            'applied' => $applied,
+            'failed' => $failed,
+            'errors' => $errors,
+            'safety_snapshot' => $snapshot !== null ? basename($snapshot) : null,
+            'gzip' => isset($decoded),
+        ];
+    }
+
+    /**
+     * Split a SQL script into individual statements on top-level `;`, while
+     * correctly skipping semicolons that live inside single/double-quoted
+     * strings, backtick identifiers, and `--` / `#` / block comments.
+     *
+     * A naive explode(';') corrupts any backup whose data contains a
+     * semicolon (comment bodies, titles, descriptions), so this is the heart
+     * of a correct restore. Pure + static so it is unit-tested with no DB.
+     */
+    public static function splitSqlStatements(string $sql): array
+    {
+        $statements = [];
+        $buf = '';
+        $len = strlen($sql);
+        $inSingle = $inDouble = $inBacktick = false;
+        $inLineComment = $inBlockComment = false;
+
+        for ($i = 0; $i < $len; $i++) {
+            $c = $sql[$i];
+            $next = $i + 1 < $len ? $sql[$i + 1] : '';
+
+            if ($inLineComment) {
+                if ($c === "\n") { $inLineComment = false; $buf .= $c; }
+                continue;
+            }
+            if ($inBlockComment) {
+                if ($c === '*' && $next === '/') { $inBlockComment = false; $i++; }
+                continue;
+            }
+            if ($inSingle) {
+                $buf .= $c;
+                if ($c === '\\' && $next !== '') { $buf .= $next; $i++; }
+                elseif ($c === "'") {
+                    if ($next === "'") { $buf .= $next; $i++; } // doubled '' escape
+                    else { $inSingle = false; }
+                }
+                continue;
+            }
+            if ($inDouble) {
+                $buf .= $c;
+                if ($c === '\\' && $next !== '') { $buf .= $next; $i++; }
+                elseif ($c === '"') {
+                    if ($next === '"') { $buf .= $next; $i++; }
+                    else { $inDouble = false; }
+                }
+                continue;
+            }
+            if ($inBacktick) {
+                $buf .= $c;
+                if ($c === '`') {
+                    if ($next === '`') { $buf .= $next; $i++; }
+                    else { $inBacktick = false; }
+                }
+                continue;
+            }
+
+            // Top level — comments first.
+            if ($c === '-' && $next === '-') {
+                $third = $i + 2 < $len ? $sql[$i + 2] : "\n";
+                if ($third === ' ' || $third === "\t" || $third === "\n" || $third === "\r") {
+                    $inLineComment = true; $i++; continue;
+                }
+            }
+            if ($c === '#') { $inLineComment = true; continue; }
+            if ($c === '/' && $next === '*') { $inBlockComment = true; $i++; continue; }
+
+            if ($c === "'") { $inSingle = true; $buf .= $c; continue; }
+            if ($c === '"') { $inDouble = true; $buf .= $c; continue; }
+            if ($c === '`') { $inBacktick = true; $buf .= $c; continue; }
+
+            if ($c === ';') {
+                $stmt = trim($buf);
+                if ($stmt !== '') { $statements[] = $stmt; }
+                $buf = '';
+                continue;
+            }
+
+            $buf .= $c;
+        }
+
+        $tail = trim($buf);
+        if ($tail !== '') { $statements[] = $tail; }
+        return $statements;
+    }
+
+    /**
+     * Dump the current database to a protected backups/ directory and return
+     * the path (or null on failure). This is the rollback artifact taken
+     * immediately before a restore.
+     */
+    private function writeSafetySnapshot(): ?string
+    {
+        $dir = $this->backupsDir();
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            return null;
+        }
+        $this->ensureBackupsProtected($dir);
+
+        try {
+            $name = 'pre-restore-' . gmdate('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.sql';
+        } catch (Throwable $e) {
+            $name = 'pre-restore-' . gmdate('Ymd-His') . '-' . substr(md5(uniqid('', true)), 0, 8) . '.sql';
+        }
+        $path = $dir . '/' . $name;
+
+        if (!$this->backupToFile($path, true)) {
+            return null;
+        }
+        $this->pruneSnapshots($dir, 5);
+        return $path;
+    }
+
+    private function backupsDir(): string
+    {
+        return dirname(__DIR__, 2) . '/backups';
+    }
+
+    /**
+     * Make sure the backups/ directory is never web-served, mirroring the
+     * db/ + services/ deny rules. Re-written defensively on each use.
+     */
+    private function ensureBackupsProtected(string $dir): void
+    {
+        $ht = $dir . '/.htaccess';
+        if (!is_file($ht)) {
+            @file_put_contents(
+                $ht,
+                "# Server-side database backups. Never served over HTTP.\n"
+                . "Require all denied\n"
+                . "<IfModule !mod_authz_core.c>\n  Order deny,allow\n  Deny from all\n</IfModule>\n"
+            );
+        }
+        $idx = $dir . '/index.html';
+        if (!is_file($idx)) {
+            @file_put_contents($idx, "");
+        }
+    }
+
+    /** Keep only the newest $keep pre-restore-*.sql snapshots. */
+    private function pruneSnapshots(string $dir, int $keep): void
+    {
+        $files = glob($dir . '/pre-restore-*.sql');
+        if (!$files || count($files) <= $keep) {
+            return;
+        }
+        // Oldest first by name (timestamped), drop everything past $keep newest.
+        sort($files);
+        $remove = array_slice($files, 0, count($files) - $keep);
+        foreach ($remove as $f) {
+            @unlink($f);
+        }
+    }
+
+    // =====================================================
     // INTERNALS
     // =====================================================
 
@@ -503,15 +783,22 @@ class MaintenanceService
         return $deleted;
     }
 
-    /** Echo a chunk to the response. */
+    /** Write a chunk to the active sink (file) or, by default, the response. */
     private function out(string $chunk): void
     {
-        echo $chunk;
+        if ($this->sink !== null) {
+            fwrite($this->sink, $chunk);
+        } else {
+            echo $chunk;
+        }
     }
 
-    /** Best-effort flush so large dumps stream instead of buffering. */
+    /** Best-effort flush so large *streamed* dumps don't buffer. No-op for a file sink. */
     private function flush(): void
     {
+        if ($this->sink !== null) {
+            return;
+        }
         if (ob_get_level() > 0) {
             @ob_flush();
         }

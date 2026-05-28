@@ -10,6 +10,8 @@
  * POST { action: 'refresh-cache' }                   → flush + re-warm caches
  * POST { action: 'refresh-metadata', limit }         → re-fetch stale metadata
  * POST { action: 'content-reset', confirm }          → wipe community + cache data
+ * POST (multipart) action=restore, backup=<file>,     → restore DB from an
+ *      confirm[, skip_safety]                            uploaded .sql/.sql.gz backup
  *
  * ALL actions require a FULL admin (role === 'admin'). requireAdmin() also
  * admits 'editor' for comment moderation, so this file gates strictly on top
@@ -44,6 +46,25 @@ $audit = function (string $action, array $extra = []) use ($admin) {
         . ($extra ? ' ' . json_encode($extra) : ''));
 };
 
+// Friendly messages for PHP's upload error codes (file too large, etc.).
+$uploadError = function (int $code): string {
+    switch ($code) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'The backup file is larger than this server allows for uploads '
+                . '(upload_max_filesize / post_max_size). Use a "minus caches" backup or raise the limit.';
+        case UPLOAD_ERR_PARTIAL:
+            return 'The upload was interrupted — please try again.';
+        case UPLOAD_ERR_NO_FILE:
+            return 'No backup file was selected.';
+        case UPLOAD_ERR_NO_TMP_DIR:
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'The server could not store the uploaded file (temp directory issue).';
+        default:
+            return 'The backup upload failed (error code ' . $code . ').';
+    }
+};
+
 $svc = new MaintenanceService();
 
 // ---- GET: status (read-only) ----
@@ -56,7 +77,55 @@ if ($api->isGet()) {
     $api->error('Invalid action', 400);
 }
 
-// ---- POST: actions ----
+// ---- POST (multipart): restore from an uploaded backup file ----
+// Handled before jsonBody() because a file upload arrives as multipart, not
+// JSON. CSRF still rides in the X-CSRF-Token header (already verified above).
+$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+if (stripos($contentType, 'multipart/form-data') !== false) {
+    if (($_POST['action'] ?? '') !== 'restore') {
+        $api->error('Invalid action', 400);
+    }
+    try {
+        if (!isset($_FILES['backup'])) {
+            $api->error('No backup file uploaded.', 400);
+        }
+        $upload = $_FILES['backup'];
+        $err = (int)($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($err !== UPLOAD_ERR_OK) {
+            $api->error($uploadError($err), 400);
+        }
+
+        // Type-to-confirm (site name) — same contract as content-reset.
+        $expected = 'Archive Film Club';
+        try {
+            $settings = (new SettingsService())->getSettings();
+            if (!empty($settings['siteName'])) {
+                $expected = (string)$settings['siteName'];
+            }
+        } catch (Throwable $e) { /* default name */ }
+
+        $confirm = trim((string)($_POST['confirm'] ?? ''));
+        if (strcasecmp($confirm, trim($expected)) !== 0) {
+            $api->error('Confirmation text did not match the site name. Type "' . $expected . '" to confirm.', 400);
+        }
+
+        $skipSafety = ApiController::sanitizeBool($_POST['skip_safety'] ?? false);
+        $audit('restore', [
+            'file' => $upload['name'] ?? '?',
+            'size' => $upload['size'] ?? 0,
+            'skip_safety' => $skipSafety,
+        ]);
+
+        $api->ok(['result' => $svc->restoreFromUpload($upload, $skipSafety)]);
+    } catch (RuntimeException $e) {
+        $api->error($e->getMessage(), 400);
+    } catch (Throwable $e) {
+        error_log('[api/admin/maintenance] restore: ' . $e->getMessage());
+        $api->error('Internal error during restore.', 500);
+    }
+}
+
+// ---- POST (JSON): actions ----
 $body = $api->jsonBody();
 $action = $body['action'] ?? '';
 
