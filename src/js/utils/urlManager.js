@@ -54,7 +54,10 @@ export class UrlManager {
       videoId: params.get('video'),
       track: params.get('track') ? parseInt(params.get('track'), 10) - 1 : null,
       timestamp: params.get('t') ? parseInt(params.get('t'), 10) : null,
-      search: params.get('search') ? decodeURIComponent(params.get('search')) : null,
+      // URLSearchParams.get() already returns a decoded value — decoding it
+      // again throws URIError on any literal '%' and corrupts '+' sequences.
+      // `|| null` preserves the previous "absent/empty → null" contract.
+      search: params.get('search') || null,
       collection: params.get('collection'),
       page: params.get('page') ? parseInt(params.get('page'), 10) : 1
     };
