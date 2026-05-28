@@ -765,8 +765,8 @@ class ArchiveOrgService {
     public function getPopularSearches(int $limit = 10): array {
         return $this->db->fetchAll(
             "SELECT query, search_count FROM popular_searches
-             ORDER BY search_count DESC LIMIT ?",
-            [$limit]
+             ORDER BY search_count DESC LIMIT " . (int)$limit,
+            []
         );
     }
 }

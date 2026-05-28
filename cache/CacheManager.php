@@ -201,8 +201,8 @@ class CacheManager {
             "SELECT cache_key, query_params, last_accessed FROM search_cache
              WHERE is_stale = 1
              ORDER BY last_accessed DESC
-             LIMIT ?",
-            [$limit]
+             LIMIT " . (int)$limit,
+            []
         );
     }
 
@@ -370,10 +370,10 @@ class CacheManager {
     public function getStaleMetadata(int $limit = 50): array {
         return $this->db->fetchAll(
             "SELECT archive_id, title, last_refreshed FROM video_metadata_cache
-             WHERE is_stale = 1 OR (is_permanent = 1 AND last_refreshed < DATE_SUB(NOW(), INTERVAL ? DAY))
+             WHERE is_stale = 1 OR (is_permanent = 1 AND last_refreshed < DATE_SUB(NOW(), INTERVAL " . (int)$this->staleAfterDays . " DAY))
              ORDER BY last_refreshed ASC
-             LIMIT ?",
-            [$this->staleAfterDays, $limit]
+             LIMIT " . (int)$limit,
+            []
         );
     }
 
@@ -461,8 +461,8 @@ class CacheManager {
             "SELECT * FROM cache_queue
              WHERE cache_type = ? AND status = 'pending' AND attempts < max_attempts
              ORDER BY priority ASC, created_at ASC
-             LIMIT ?",
-            [$cacheType, $limit]
+             LIMIT " . (int)$limit,
+            [$cacheType]
         );
     }
 

@@ -580,7 +580,12 @@ class VideoPlayer {
 
   parseUrlAndLoad() {
     const params = new URLSearchParams(window.location.search);
-    const videoId = params.get('video');
+    // Sanitize to the same charset the server enforces (sanitizeArchiveId:
+    // [a-zA-Z0-9_.-]). The raw param is interpolated into innerHTML in a few
+    // places (download links, playlist thumbnails), so stripping HTML-meta
+    // characters here closes reflected-XSS via a crafted ?video= link. A
+    // "dirty" id would never resolve against archive.org anyway.
+    const videoId = (params.get('video') || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
     const track = params.get('track') ? parseInt(params.get('track'), 10) - 1 : null;
     const timestamp = params.get('t') ? parseInt(params.get('t'), 10) : null;
 
@@ -1224,7 +1229,7 @@ class VideoPlayer {
       const size = formatFileSize(file.size);
       const quality = this.videoService.getQualityLabel(file.name);
       return `
-        <a href="${url}" target="_blank" download="${escapeHtml(file.name)}" class="download-item">
+        <a href="${escapeHtml(url)}" target="_blank" download="${escapeHtml(file.name)}" class="download-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3V15M12 15L7 10M12 15L17 10M3 17V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <div class="download-item-info">
             <span class="download-item-quality">${quality}</span>
@@ -1244,7 +1249,7 @@ class VideoPlayer {
     }
 
     html += `
-      <a href="https://archive.org/download/${this.videoId}" target="_blank" class="download-item download-item-all">
+      <a href="https://archive.org/download/${escapeHtml(this.videoId)}" target="_blank" class="download-item download-item-all">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 6C3 4.89543 3.89543 4 5 4H9L11 6H19C20.1046 6 21 6.89543 21 8V18C21 19.1046 20.1046 20 19 20H5C3.89543 20 3 19.1046 3 18V6Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <div class="download-item-info">
           <span class="download-item-quality">Browse All Files</span>

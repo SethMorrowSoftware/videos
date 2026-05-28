@@ -110,7 +110,7 @@ export class PlayerPlaylist {
     seriesCard.className = 'player-series-card';
     seriesCard.innerHTML = `
       <div class="player-series-cover">
-        <img src="${coverUrl}" alt="" loading="lazy" onerror="this.style.display='none'" />
+        <img src="${escapeHtml(coverUrl)}" alt="" loading="lazy" onerror="this.style.display='none'" />
       </div>
       <div class="player-series-info">
         <div class="player-series-eyebrow">Now playing</div>
@@ -355,7 +355,7 @@ export class PlayerPlaylist {
         <div class="playlist-item ${stateClass}" data-index="${i}" role="button" tabindex="0">
           <span class="playlist-item-number" ${numberLabel}>${number}</span>
           <div class="playlist-item-thumb">
-            <img src="${thumbUrl}" alt="" loading="lazy" onerror="this.style.display='none'" />
+            <img src="${escapeHtml(thumbUrl)}" alt="" loading="lazy" onerror="this.style.display='none'" />
             ${isActive ? `
               <div class="playlist-item-playing-icon">
                 <div class="playing-bars"><span></span><span></span><span></span></div>

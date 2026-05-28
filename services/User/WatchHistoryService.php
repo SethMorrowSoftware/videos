@@ -18,8 +18,8 @@ class WatchHistoryService {
              FROM user_watch_history
              WHERE user_id = ?
              ORDER BY last_watched DESC
-             LIMIT ?",
-            [$userId, $limit]
+             LIMIT " . (int)$limit,
+            [$userId]
         );
     }
 

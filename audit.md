@@ -20,6 +20,8 @@ However, the audit found a **small number of high-impact bugs that break core fe
 
 These three should be fixed before any public launch. The rest are graded below.
 
+> **Update:** the three headline issues (C1, C2, H1) were **fixed in this PR** at the maintainer's request. Each carries a "Status — FIXED" note below. All other findings remain documented for triage.
+
 ---
 
 ## CRITICAL
@@ -52,6 +54,8 @@ Depending on the caller, the failure surfaces either as an HTTP 500 (global hand
 
 > Note: `MetricsService` and `CommentService` interpolate `(int)`-cast limits/offsets directly, so they are **not** affected — confirming interpolation is the project's already-working pattern.
 
+**Status — FIXED in this PR.** All 7 call sites now interpolate an `(int)`-cast `LIMIT`/`OFFSET` (and the one `INTERVAL ? DAY`) directly and drop the value from the bound-params array — matching the existing `MetricsService` pattern. Provably injection-safe (the interpolated values are integer casts). `grep` confirms no bound `?` remains in any `LIMIT`/`OFFSET`, and all files lint clean. The native-prepares mode (`EMULATE_PREPARES => false`) was intentionally left unchanged to avoid altering global query/return-type behavior.
+
 ### C2. Privilege escalation — an `editor` can grant themselves `admin` **[verified]**
 **Where:** `api/admin/metrics.php:32, 98-112`; `services/Admin/MetricsService.php:383-388`.
 
@@ -64,6 +68,8 @@ if ($userId === (int)$admin['id'] && $role !== 'admin') { /* block self-demote *
 This blocks demoting *yourself*, but an `editor` can POST `{action:'set-role', user_id:<own id>, role:'admin'}` — the second clause (`$role !== 'admin'`) is false, so the guard does not fire — or target any other account. `MetricsService::setRole()` performs the `UPDATE` with no caller-role check. Result: the lower-trust `editor` role (intended for content curation) can seize full `admin`.
 
 **Fix:** Gate user-role mutations behind a strict admin-only check (`if (($admin['role'] ?? '') !== 'admin') $api->error('Admin only', 403);`) before `set-role`, and refuse to assign `admin` from a non-admin caller.
+
+**Status — FIXED in this PR.** `set-role` now rejects any caller whose role isn't exactly `admin` (403). Editors retain comment moderation (`moderate`/`resolve-reports`) but can no longer touch user roles. *(Note: the related last-admin lockout, H4, was left documented — the maintainer scoped this PR to C1/C2/H1.)*
 
 ---
 
@@ -86,6 +92,8 @@ A crafted link such as `player.php?video="><img src=x onerror=alert(document.coo
 **Exploitability:** `buildDownloadLinks` runs only after the metadata fetch succeeds, and the API sanitizes the id (`sanitizeArchiveId` strips `"<>`). So the attacker must own an archive.org item whose *sanitized* name matches the stripped payload while the raw `?video=` value still carries the breakout characters — achievable because archive.org item identifiers are freely creatable. The fix is trivial regardless, and a raw URL parameter must never reach `innerHTML` unescaped.
 
 **Fix:** Escape `this.videoId`/`id` with `escapeHtml()` before interpolation (or build the anchors/images with `document.createElement` and assign `.href`/`.src` as properties). `helpers.js` already exports `escapeHtml`.
+
+**Status — FIXED in this PR.** Two layers: (1) `parseUrlAndLoad()` now sanitizes the `?video=` param to `[a-zA-Z0-9_.-]` at the source (the same charset the server's `sanitizeArchiveId` enforces), which neutralizes every downstream sink — download links, the playlist cover/thumbnail (`identifier` is derived from `videoId`), and the share link; (2) defense-in-depth `escapeHtml()` was added at the download-link `href` sinks (`player.js`) and the playlist `<img src>` sinks (`PlayerPlaylist.js`). `node --check` passes on both files.
 
 ### H2. Public registration auto-promotes the first account to `admin`, with no install gate and a race **[verified]**
 **Where:** `services/Auth/UserAuthService.php:78-94`; `register.php` / `api/auth/register.php`.
