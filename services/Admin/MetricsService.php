@@ -288,9 +288,10 @@ class MetricsService {
         try {
             return $this->db->fetchAll(
                 "SELECT c.id, c.archive_id, c.body, c.status, c.created_at,
-                        c.user_id, u.username, u.display_name
+                        c.user_id, u.username,
+                        COALESCE(u.display_name, u.username, '[deleted]') AS display_name
                  FROM video_comments c
-                 JOIN users u ON u.id = c.user_id
+                 LEFT JOIN users u ON u.id = c.user_id
                  WHERE c.status = 'visible'
                  ORDER BY c.created_at DESC
                  LIMIT $limit"
@@ -442,10 +443,11 @@ class MetricsService {
             $rows = $this->db->fetchAll(
                 "SELECT c.id, c.archive_id, c.body, c.status, c.parent_id,
                         c.like_count, c.created_at, c.edited_at,
-                        u.id AS user_id, u.username, u.display_name, u.role,
+                        u.id AS user_id, u.username,
+                        COALESCE(u.display_name, u.username, '[deleted]') AS display_name, u.role,
                         (SELECT COUNT(*) FROM comment_reports r WHERE r.comment_id = c.id AND r.resolved_at IS NULL) AS report_count
                  FROM video_comments c
-                 JOIN users u ON u.id = c.user_id
+                 LEFT JOIN users u ON u.id = c.user_id
                  $joins
                  WHERE $whereSql
                  ORDER BY c.created_at DESC

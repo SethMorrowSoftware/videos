@@ -57,7 +57,7 @@ class CommentService {
                     c.like_count, c.reply_count, c.edited_at, c.created_at,
                     u.username, u.display_name, u.role
              FROM video_comments c
-             JOIN users u ON u.id = c.user_id
+             LEFT JOIN users u ON u.id = c.user_id
              WHERE c.archive_id = ?
                AND c.parent_id IS NULL
                AND c.status <> 'hidden'
@@ -86,7 +86,7 @@ class CommentService {
                         c.like_count, c.edited_at, c.created_at,
                         u.username, u.display_name, u.role
                  FROM video_comments c
-                 JOIN users u ON u.id = c.user_id
+                 LEFT JOIN users u ON u.id = c.user_id
                  WHERE c.parent_id IN ($in) AND c.status <> 'hidden'
                  ORDER BY c.created_at ASC",
                 $topIds
@@ -127,7 +127,7 @@ class CommentService {
                     c.like_count, c.edited_at, c.created_at,
                     u.username, u.display_name, u.role
              FROM video_comments c
-             JOIN users u ON u.id = c.user_id
+             LEFT JOIN users u ON u.id = c.user_id
              WHERE c.parent_id = ? AND c.id > ? AND c.status <> 'hidden'
              ORDER BY c.created_at ASC
              LIMIT " . self::REPLY_PAGE_SIZE,
@@ -192,7 +192,7 @@ class CommentService {
             "SELECT c.id, c.user_id, c.parent_id, c.body, c.status,
                     c.like_count, c.reply_count, c.edited_at, c.created_at,
                     u.username, u.display_name, u.role
-             FROM video_comments c JOIN users u ON u.id = c.user_id
+             FROM video_comments c LEFT JOIN users u ON u.id = c.user_id
              WHERE c.id = ?",
             [$newId]
         );
@@ -229,7 +229,7 @@ class CommentService {
             "SELECT c.id, c.user_id, c.parent_id, c.body, c.status,
                     c.like_count, c.reply_count, c.edited_at, c.created_at,
                     u.username, u.display_name, u.role
-             FROM video_comments c JOIN users u ON u.id = c.user_id
+             FROM video_comments c LEFT JOIN users u ON u.id = c.user_id
              WHERE c.id = ?",
             [$commentId]
         );
@@ -465,8 +465,13 @@ class CommentService {
 
     private function serializeRow(array $r, int $viewerId, array $likedSet): array {
         $isDeleted = $r['status'] === 'deleted';
-        $authorName = $r['display_name'] ?: $r['username'];
-        $isOwn = ($viewerId === (int)$r['user_id']);
+        // The author may have deleted their account — user_id is SET NULL by the
+        // FK and the LEFT JOIN leaves the user columns NULL. Render a neutral
+        // placeholder instead of a blank name, and never treat a NULL author as
+        // the current viewer or an admin.
+        $authorMissing = ($r['user_id'] === null);
+        $authorName = $authorMissing ? '[deleted]' : ($r['display_name'] ?: $r['username']);
+        $isOwn = !$authorMissing && ($viewerId === (int)$r['user_id']);
         $viewerCanModerate = $this->canModerate($this->context->current());
         return [
             'id' => (int)$r['id'],
@@ -480,11 +485,11 @@ class CommentService {
             'edited_at' => $r['edited_at'],
             'liked' => isset($likedSet[(int)$r['id']]),
             'author' => [
-                'id' => (int)$r['user_id'],
+                'id' => $authorMissing ? null : (int)$r['user_id'],
                 'username' => $r['username'],
                 'display_name' => $authorName,
                 'role' => $r['role'],
-                'is_admin' => in_array($r['role'], ['admin', 'editor'], true),
+                'is_admin' => in_array($r['role'] ?? '', ['admin', 'editor'], true),
                 'is_viewer' => $isOwn,
             ],
             'can_edit' => $isOwn && !$isDeleted,

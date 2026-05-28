@@ -226,7 +226,7 @@ Self-service `delete()` decrements the parent's `reply_count`; the admin `modera
 Deleting a user cascades to their comments, and because replies cascade on `parent_id`, deleting one user can wipe **other users' replies** under those threads — contradicting the soft-delete "keep threads for consistency" design.
 **Fix:** `ON DELETE SET NULL` on `video_comments.user_id` and render "deleted user".
 
-**Status — ESCALATED (not in PR #65).** This is a foreign-key schema change: on existing installs it requires making `user_id` nullable and dropping an auto-named FK (`video_comments_ibfk_1`) in a migration that can't be exercised without a live DB, plus INNER→LEFT JOIN changes across ~5 query sites in CommentService/MetricsService and "deleted user" rendering. Deferred to its own focused, DB-testable change rather than bundled into the P4 hardening PR.
+**Status — FIXED in PR #68.** Migration 006 now declares `user_id` nullable with a named FK `fk_video_comments_user … ON DELETE SET NULL`; new migration 007 swaps the FK on existing installs (drops the auto-named CASCADE FK, re-adds it as SET NULL — re-runnable, installer-globbed). All comment-author joins in CommentService are `LEFT JOIN` and `serializeRow()` renders a NULL author as `[deleted]`; MetricsService `recentComments`/moderation `LEFT JOIN` + `COALESCE` to `[deleted]` (topCommenters stays INNER). The existing-install FK swap can't be exercised without a live DB — verify with `SHOW CREATE TABLE` post-migration.
 
 ### M14. Electron static mount serves PHP source and `.env` in cleartext **[flagged]**
 **Where:** `electron/server.js:282-285`.
