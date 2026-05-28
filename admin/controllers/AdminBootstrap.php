@@ -92,13 +92,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
         $username = trim($_POST['username'] ?? 'admin');
         $password = $_POST['password'] ?? '';
 
-        $user = $authService->authenticate($username, $password);
+        try {
+            $user = $authService->authenticate($username, $password);
+        } catch (RuntimeException $e) {
+            // Raised when the per-IP brute-force throttle trips.
+            $user = null;
+            $login_error = $e->getMessage();
+        }
         if ($user) {
             $authService->startSession($user);
             $admin_user = $user;
             // Rotate CSRF token on auth state change
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-        } else {
+        } elseif ($login_error === '') {
             $login_error = 'Invalid username or password';
         }
     } else {

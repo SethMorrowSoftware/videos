@@ -8,6 +8,11 @@
 require_once __DIR__ . '/../db/Database.php';
 
 class AdminAuthService {
+    // Brute-force throttle for the legacy admin login path. Mirrors
+    // UserAuthService's per-IP limit and shares the same auth_attempts table.
+    const THROTTLE_WINDOW_MINUTES = 10;
+    const THROTTLE_MAX_PER_IP = 20;
+
     private $db;
 
     public function __construct() {
@@ -22,6 +27,25 @@ class AdminAuthService {
      * haven't run the migration yet.
      */
     public function authenticate(string $username, string $password): ?array {
+        // Throttle this legacy path through the same per-IP limit and
+        // auth_attempts table that UserAuthService::login uses, so it isn't an
+        // unthrottled brute-force channel. Fails open if the table isn't
+        // present (migration 005 not run).
+        if ($this->isThrottled()) {
+            throw new RuntimeException('Too many sign-in attempts. Please wait a few minutes and try again.');
+        }
+
+        $user = $this->verifyCredentials($username, $password);
+        $this->recordAttempt($username, $user !== null);
+        return $user;
+    }
+
+    /**
+     * Verify admin credentials against the unified `users` table, falling back
+     * to the legacy `admin_users` table. Returns the user row (without the
+     * password hash) on success, null on failure.
+     */
+    private function verifyCredentials(string $username, string $password): ?array {
         // New unified users table
         $user = $this->db->fetchOne(
             "SELECT id, username, email, password_hash, role
@@ -54,6 +78,42 @@ class AdminAuthService {
         $this->db->query("UPDATE users SET last_seen = NOW() WHERE id = ?", [$user['id']]);
         unset($user['password_hash']);
         return $user;
+    }
+
+    /**
+     * Per-IP brute-force check against the shared auth_attempts table. Returns
+     * false (allow) if the table is missing so admin login still works before
+     * migration 005 is run.
+     */
+    private function isThrottled(): bool {
+        try {
+            $ipHash = hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            $count = (int)$this->db->fetchColumn(
+                "SELECT COUNT(*) FROM auth_attempts
+                 WHERE ip_hash = ? AND success = 0
+                 AND created_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)",
+                [$ipHash, self::THROTTLE_WINDOW_MINUTES]
+            );
+            return $count >= self::THROTTLE_MAX_PER_IP;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Record one admin login attempt for throttling/audit. Best-effort — a
+     * write failure must not block login.
+     */
+    private function recordAttempt(string $username, bool $success): void {
+        try {
+            $this->db->insert('auth_attempts', [
+                'ip_hash' => hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                'identifier' => mb_substr(mb_strtolower(trim($username)), 0, 255),
+                'success' => $success ? 1 : 0,
+            ]);
+        } catch (Throwable $e) {
+            // auth_attempts missing (migration 005 not run) or DB unavailable.
+        }
     }
 
     /**
