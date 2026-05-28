@@ -51,37 +51,54 @@ try {
     $localStorageService = new LocalStorageService();
     $cacheManager = new CacheManager();
 
-    // Process main queue. Drop the batch size when we couldn't extend the
-    // per-request timeout, so a 30s shared-cPanel default still completes
-    // cleanly.
-    $limit = $hasExtendedTimeout ? 30 : 10;
-    $results = $localStorageService->processQueue($limit);
-
-    echo "Metadata processed: {$results['metadata_processed']}\n";
-    echo "Thumbnails processed: {$results['thumbnails_processed']}\n";
-
-    if (!empty($results['errors'])) {
-        echo "Errors (" . count($results['errors']) . "):\n";
-        foreach (array_slice($results['errors'], 0, 5) as $error) {
-            echo "  - $error\n";
-        }
+    // Serialize overlapping cron runs. A */5 schedule on a slow host can start
+    // a new run before the previous one finishes. The atomic claim already
+    // prevents double-processing a row; this advisory lock just avoids the
+    // wasted concurrent work (and concurrent reaping). It is scoped to this
+    // database and auto-releases if the process dies, so it can't wedge.
+    if (!$cacheManager->acquireQueueLock()) {
+        echo "[" . date('Y-m-d H:i:s') . "] Another run holds the queue lock; exiting.\n";
+        exit(0);
     }
 
-    // Refresh stale data (lower priority, do fewer items)
-    $staleResults = $localStorageService->refreshStaleData(5);
-    echo "Stale items refreshed: {$staleResults['refreshed']}\n";
+    try {
+        // Process main queue. Drop the batch size when we couldn't extend the
+        // per-request timeout, so a 30s shared-cPanel default still completes
+        // cleanly.
+        $limit = $hasExtendedTimeout ? 30 : 10;
+        $results = $localStorageService->processQueue($limit);
 
-    // Record daily stats
-    $cacheManager->recordDailyStats();
+        echo "Metadata processed: {$results['metadata_processed']}\n";
+        echo "Thumbnails processed: {$results['thumbnails_processed']}\n";
+        if (!empty($results['reaped'])) {
+            echo "Stuck items re-queued: {$results['reaped']}\n";
+        }
 
-    // Get and display current stats
-    $stats = $cacheManager->getStats();
-    echo "\nCurrent cache stats:\n";
-    echo "  Metadata entries: {$stats['metadata']['entries']} (permanent: {$stats['metadata']['permanent']}, stale: {$stats['metadata']['stale']})\n";
-    echo "  Thumbnail entries: {$stats['thumbnails']['entries']}\n";
-    echo "  Queue pending: {$stats['queue']['pending']}\n";
+        if (!empty($results['errors'])) {
+            echo "Errors (" . count($results['errors']) . "):\n";
+            foreach (array_slice($results['errors'], 0, 5) as $error) {
+                echo "  - $error\n";
+            }
+        }
 
-    echo "\n[" . date('Y-m-d H:i:s') . "] Cache queue processing completed\n";
+        // Refresh stale data (lower priority, do fewer items)
+        $staleResults = $localStorageService->refreshStaleData(5);
+        echo "Stale items refreshed: {$staleResults['refreshed']}\n";
+
+        // Record daily stats
+        $cacheManager->recordDailyStats();
+
+        // Get and display current stats
+        $stats = $cacheManager->getStats();
+        echo "\nCurrent cache stats:\n";
+        echo "  Metadata entries: {$stats['metadata']['entries']} (permanent: {$stats['metadata']['permanent']}, stale: {$stats['metadata']['stale']})\n";
+        echo "  Thumbnail entries: {$stats['thumbnails']['entries']}\n";
+        echo "  Queue pending: {$stats['queue']['pending']}\n";
+
+        echo "\n[" . date('Y-m-d H:i:s') . "] Cache queue processing completed\n";
+    } finally {
+        $cacheManager->releaseQueueLock();
+    }
 
 } catch (Exception $e) {
     echo "[ERROR] " . $e->getMessage() . "\n";

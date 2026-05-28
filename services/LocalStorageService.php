@@ -250,13 +250,21 @@ class LocalStorageService {
         $results = [
             'metadata_processed' => 0,
             'thumbnails_processed' => 0,
+            'reaped' => 0,
             'errors' => [],
         ];
+
+        // Re-queue anything a previous run left stuck in 'processing' (killed
+        // mid-item by a short max_execution_time) before we claim new work.
+        $results['reaped'] = $this->cacheManager->reapStuckQueueItems();
 
         // Process metadata queue
         $metadataItems = $this->cacheManager->getPendingCacheItems('metadata', $limit);
         foreach ($metadataItems as $item) {
-            $this->cacheManager->markQueueItemProcessing($item['id']);
+            // Atomic claim — skip if another run grabbed this row first.
+            if (!$this->cacheManager->markQueueItemProcessing($item['id'])) {
+                continue;
+            }
 
             try {
                 $fetchResult = $this->fetchAndCacheMetadata($item['archive_id']);
@@ -276,7 +284,10 @@ class LocalStorageService {
         // Process thumbnail queue
         $thumbnailItems = $this->cacheManager->getPendingCacheItems('thumbnail', $limit);
         foreach ($thumbnailItems as $item) {
-            $this->cacheManager->markQueueItemProcessing($item['id']);
+            // Atomic claim — skip if another run grabbed this row first.
+            if (!$this->cacheManager->markQueueItemProcessing($item['id'])) {
+                continue;
+            }
 
             try {
                 $path = $this->thumbnailCache->cache($item['archive_id']);

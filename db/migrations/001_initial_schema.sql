@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS search_cache (
     response_data LONGTEXT NOT NULL,
     result_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NULL DEFAULT NULL,  -- NULL = permanent cache row (migration 002 also MODIFYs this; declaring it here keeps fresh installs correct even if 002's MODIFY didn't apply)
     hit_count INT DEFAULT 0,
     last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_cache_key (cache_key),
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS video_metadata_cache (
     thumbnail_cached TINYINT(1) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NULL DEFAULT NULL,  -- NULL = permanent cache row (migration 002 also MODIFYs this; declaring it here keeps fresh installs correct even if 002's MODIFY didn't apply)
     UNIQUE KEY uk_archive_id (archive_id),
     INDEX idx_expires (expires_at),
     INDEX idx_downloads (downloads DESC)
