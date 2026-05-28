@@ -1,27 +1,33 @@
 /**
  * Service Worker for Comet Cult Film Club
- * Version: 1.2.0
+ * Version: 1.3.0
  * Features: Offline support, intelligent caching, background sync
  *
+ * v1.3 changes:
+ *   - fetchWithTimeout now uses a real AbortController so timed-out
+ *     requests are actually cancelled instead of leaking. Prior version
+ *     raced a setTimeout and let fetch keep running, which surfaced to
+ *     the page as TypeError: Failed to fetch and got mis-classified
+ *     as "offline".
+ *   - Timeouts raised across the board: search.php was being killed at
+ *     10s even on uncached requests where archive.org legitimately took
+ *     15+ seconds. HTML navigation timeout raised from 5s to 15s.
+ *   - offline.html is no longer served on a timeout — only on a true
+ *     network error. Timeouts return 504 so the browser shows its own
+ *     "not available" rather than a misleading offline splash.
+ *   - SWR cache writes now skip success:false, empty-search, and 5xx
+ *     responses so the cache can't pollute later searches with junk.
+ *
  * v1.2 changes:
- *   - Stopped intercepting unknown cross-origin requests. The catch-all
- *     `handleDynamicRequest` was re-fetching things like the Google Fonts
- *     stylesheet from inside the SW, which routes through CSP `connect-src`
- *     and gets blocked (the original <link> fetch only needs `style-src`).
- *     Now we only respondWith() for things we actually want to cache:
- *     same-origin app + API, archive.org, and image destinations.
+ *   - Stopped intercepting unknown cross-origin requests.
  *
  * v1.1 changes:
- *   - Bumped CACHE_VERSION so old caches get evicted (with the old, broken
- *     image cache that didn't store archive.org redirects)
- *   - Cache image limit raised — thumbnails are immutable, no reason to evict
- *     them aggressively
- *   - Image cache now follows redirects (so archive.org thumbnail URLs that
- *     302 to a CDN get cached at their final resolved URL)
+ *   - Bumped CACHE_VERSION so old caches get evicted
+ *   - Image cache follows redirects, gets a generous limit
  *   - metadata-batch.php gets cache-first treatment like metadata.php
  */
 
-const CACHE_VERSION = 'ccfc-v4';
+const CACHE_VERSION = 'ccfc-v5';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -203,23 +209,26 @@ async function handleApiRequest(request) {
         return await handleNetworkFirst(request, config.ttl);
     }
   } catch (error) {
-    console.error('[SW] API request failed:', error);
+    console.warn('[SW] API request failed:', error && error.name, url.pathname);
 
-    // Try to return cached version
+    // Try to return cached version — even past TTL is better than a synthetic 503.
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
       return cachedResponse;
     }
 
-    return new Response(JSON.stringify({ error: 'Network error', offline: true }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    // No cache — bubble the actual failure up. The page-side code
+    // distinguishes real network failure from "I gave up" by inspecting
+    // the error name; a synthetic 503 here was confusing the offline
+    // classifier and surfacing false "you are offline" messages.
+    throw error;
   }
 }
 
 /**
- * Cache-first strategy: Use cache if available, otherwise fetch
+ * Cache-first strategy: Use cache if available, otherwise fetch.
+ * Timeout raised to 20s — cold metadata/thumbnail lookups against
+ * archive.org legitimately take longer than 10s on shared hosting.
  */
 async function handleCacheFirst(request, ttl) {
   const cachedResponse = await caches.match(request);
@@ -231,9 +240,10 @@ async function handleCacheFirst(request, ttl) {
     }
   }
 
-  const networkResponse = await fetchWithTimeout(request, 10000);
+  const url = new URL(request.url);
+  const networkResponse = await fetchWithTimeout(request, 20000);
 
-  if (networkResponse.ok) {
+  if (await isCacheable(networkResponse, url)) {
     const cache = await caches.open(DYNAMIC_CACHE);
     cache.put(request, await stampCachedAt(networkResponse.clone()))
          .catch(() => {});
@@ -243,13 +253,14 @@ async function handleCacheFirst(request, ttl) {
 }
 
 /**
- * Network-first strategy: Try network, fall back to cache
+ * Network-first strategy: Try network, fall back to cache.
  */
 async function handleNetworkFirst(request, ttl) {
+  const url = new URL(request.url);
   try {
-    const networkResponse = await fetchWithTimeout(request, 10000);
+    const networkResponse = await fetchWithTimeout(request, 20000);
 
-    if (networkResponse.ok) {
+    if (await isCacheable(networkResponse, url)) {
       const cache = await caches.open(DYNAMIC_CACHE);
       cache.put(request, await stampCachedAt(networkResponse.clone()))
            .catch(() => {});
@@ -266,29 +277,38 @@ async function handleNetworkFirst(request, ttl) {
 }
 
 /**
- * Stale-while-revalidate: Return cache immediately, update in background
+ * Stale-while-revalidate: Return cache immediately, update in background.
+ *
+ * If we have ANY cached copy we return it immediately and let the network
+ * refresh happen non-blocking — even when the cache is past TTL. Better
+ * to show slightly-stale results than to hang the user behind a slow
+ * archive.org call.
  */
 async function handleStaleWhileRevalidate(request, ttl) {
+  const url = new URL(request.url);
   const cachedResponse = await caches.match(request);
 
-  // Fetch and update cache in background
-  const fetchPromise = fetchWithTimeout(request, 10000)
+  const fetchPromise = fetchWithTimeout(request, 20000)
     .then(async networkResponse => {
-      if (networkResponse.ok) {
+      if (await isCacheable(networkResponse, url)) {
         const cache = await caches.open(DYNAMIC_CACHE);
         cache.put(request, await stampCachedAt(networkResponse.clone()))
              .catch(err => console.warn('[SW] Cache put failed:', err));
       }
       return networkResponse;
     })
-    .catch(() => null);
+    .catch(err => {
+      // Background refresh failure is non-fatal when we have cache. The
+      // page will keep working off the stale entry and the next request
+      // gets another shot at the network.
+      if (!cachedResponse) console.warn('[SW] SWR network failed:', err && err.name);
+      return null;
+    });
 
-  // Return cached version immediately if available
   if (cachedResponse) {
     return cachedResponse;
   }
 
-  // No cache, wait for network
   const networkResponse = await fetchPromise;
   if (networkResponse) {
     return networkResponse;
@@ -312,10 +332,13 @@ async function handleAppRequest(request) {
 
   if (isHtml) {
     // Network-first for HTML so OG tags / settings updates / new pages
-    // appear immediately. If network fails, fall back to cache, then to
-    // the offline page.
+    // appear immediately. If network fails, fall back to cache. Only
+    // serve offline.html on a real network error — a timeout against a
+    // slow PHP backend is NOT the user being offline, and showing the
+    // offline splash for a sluggish backend is the loudest false alarm
+    // in the whole app.
     try {
-      const networkResponse = await fetchWithTimeout(request, 5000);
+      const networkResponse = await fetchWithTimeout(request, 15000);
       if (networkResponse.ok) {
         const cache = await caches.open(STATIC_CACHE);
         cache.put(request, await stampCachedAt(networkResponse.clone()))
@@ -325,6 +348,17 @@ async function handleAppRequest(request) {
     } catch (e) {
       const cachedResponse = await caches.match(request);
       if (cachedResponse) return cachedResponse;
+
+      // Real network error (TypeError: Failed to fetch) → offline page.
+      // Timeout (our own TimeoutError) → 504 so the browser shows its
+      // own "site can't be reached" rather than the offline splash.
+      if (e && e.name === 'TimeoutError') {
+        return new Response('Upstream timed out. Please retry.', {
+          status: 504,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      }
+
       const offlinePage = await caches.match('./offline.html');
       if (offlinePage) return offlinePage;
       return new Response('Offline — please check your connection.', {
@@ -380,35 +414,32 @@ async function handleArchiveRequest(request) {
         }
       }
 
-      // Network request with timeout
-      const networkResponse = await fetchWithTimeout(request, 10000);
+      // Network request with timeout — archive.org search/metadata can
+      // legitimately take >10s on a cold path, so 20s buys headroom.
+      const networkResponse = await fetchWithTimeout(request, 20000);
 
-      // Cache successful responses
-      if (networkResponse.ok) {
+      if (await isCacheable(networkResponse, url)) {
         const cache = await caches.open(DYNAMIC_CACHE);
         cache.put(request, await stampCachedAt(networkResponse.clone()))
              .catch(() => {});
 
-        // Trim cache if needed
         trimCache(DYNAMIC_CACHE, CACHE_LIMITS.dynamic);
       }
-      
+
       return networkResponse;
     } catch (error) {
-      console.error('[SW] Archive request failed:', error);
-      
-      // Return cached version if available
+      console.warn('[SW] Archive request failed:', error && error.name, request.url);
+
+      // Return cached version if available — even past TTL.
       const cachedResponse = await caches.match(request);
       if (cachedResponse) {
-        console.log('[SW] Serving stale cache for:', request.url);
         return cachedResponse;
       }
-      
-      // Return error response
-      return new Response(JSON.stringify({ error: 'Network error' }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' }
-      });
+
+      // No cache. Bubble the failure up — let the page-side fetch handler
+      // decide what to show. Returning a fake 503 here would cause the
+      // page to treat archive.org's slowness as a hard offline state.
+      throw error;
     }
   }
   
@@ -431,8 +462,10 @@ async function handleImageRequest(request) {
     }
 
     // Network request. Follow redirects so archive.org URLs that 302 to a CDN
-    // get cached at the archive.org URL the page actually requested.
-    const networkResponse = await fetchWithTimeout(request, 8000);
+    // get cached at the archive.org URL the page actually requested. 15s
+    // because archive.org thumbnail service is slow under load and a missed
+    // thumbnail is way more annoying than a few extra seconds of placeholder.
+    const networkResponse = await fetchWithTimeout(request, 15000);
 
     // Cache successful image responses (and 304s, which the browser will hydrate)
     if (networkResponse.ok || networkResponse.status === 304) {
@@ -466,15 +499,75 @@ async function handleImageRequest(request) {
 }
 
 /**
- * Fetch with timeout
+ * Fetch with a real timeout. The previous implementation raced fetch()
+ * against a setTimeout reject — but the underlying fetch kept running in
+ * the background, which (a) wasted the browser's per-origin connection
+ * slot and (b) surfaced to the calling page as "TypeError: Failed to
+ * fetch" because the SW response stream was discarded mid-flight. The
+ * page code mis-classified that as offline.
+ *
+ * Now we use a real AbortController so the underlying request is cleanly
+ * cancelled, the rejection is a named TimeoutError the caller can
+ * distinguish from a real network failure, and downstream cache.put()
+ * never fires for partial bodies.
  */
-function fetchWithTimeout(request, timeout = 5000) {
-  return Promise.race([
-    fetch(request),
-    new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Request timeout')), timeout)
-    )
-  ]);
+function fetchWithTimeout(request, timeout = 15000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort('sw-timeout'), timeout);
+
+  // Some callers pass a Request object. Re-issue with our signal so we
+  // can actually cancel it. Cloning preserves method/headers/body.
+  const init = { signal: controller.signal };
+  const reqLike = (request instanceof Request) ? new Request(request, init) : request;
+  const promise = (request instanceof Request)
+    ? fetch(reqLike)
+    : fetch(request, init);
+
+  return promise
+    .then(res => { clearTimeout(t); return res; })
+    .catch(err => {
+      clearTimeout(t);
+      if (err && err.name === 'AbortError') {
+        const e = new Error('Request timed out');
+        e.name = 'TimeoutError';
+        throw e;
+      }
+      throw err;
+    });
+}
+
+/**
+ * Should this response be written to cache? Used to guard against polluting
+ * caches with empty result sets, server errors, or app-level failures that
+ * happen to come back as HTTP 200. Without this guard, an upstream 5xx or
+ * an empty-query 200 would get cached under SWR and serve junk for the
+ * next several minutes.
+ */
+async function isCacheable(response, url) {
+  if (!response) return false;
+  if (!response.ok) return false;
+  if (response.status >= 500) return false;
+  // archive.org/thumbnail-like binary responses can't be peeked safely.
+  // Only sniff JSON responses on our own API.
+  const ct = response.headers.get('content-type') || '';
+  if (!ct.includes('json')) return true;
+  try {
+    const peek = await response.clone().text();
+    if (!peek) return false;
+    // Cheap shape check — avoid full parse on big payloads.
+    if (peek.includes('"success":false')) return false;
+    // Empty search results carry "numFound":0 + "docs":[] — caching this
+    // would serve "no results" to a later identical search even after the
+    // upstream has fresh data. Better to let it miss-then-revalidate.
+    if (url && url.pathname && url.pathname.endsWith('/search.php')
+        && peek.includes('"numFound":0')) {
+      return false;
+    }
+  } catch {
+    // If we can't peek, default to caching — better than dropping good data.
+    return true;
+  }
+  return true;
 }
 
 /**

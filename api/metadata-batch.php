@@ -73,31 +73,32 @@ try {
         }
 
         if ($cached !== null) {
-            // Strip internal flags before sending to client
             unset($cached['raw_metadata'], $cached['_is_stale']);
             $results[$id] = $cached;
-            // Stale entries still get returned — the cache layer will
-            // queue them for background refresh.
         } else {
             $needsFetch[] = $id;
             $allCached = false;
         }
     }
 
-    // Second pass: fetch anything that wasn't cached. We do this serially
-    // so a slow/failing call to one ID doesn't block the rest indefinitely,
-    // but keep them inside this single request so the client only sees
-    // one round-trip.
-    foreach ($needsFetch as $id) {
-        try {
-            $fetchResult = $archiveService->getMetadata($id);
-            if (!empty($fetchResult['success']) && !empty($fetchResult['data'])) {
-                $data = $fetchResult['data'];
-                unset($data['raw_metadata'], $data['_is_stale']);
-                $results[$id] = $data;
+    // Second pass: fetch anything that wasn't cached, IN PARALLEL.
+    //
+    // The previous version did this serially, which (with the 15s per-call
+    // upstream timeout) could take up to 15 * N seconds. The service worker's
+    // 20s fetch timeout would then kill the response and the client would
+    // get a "Failed to fetch" that got mis-shown as "you are offline".
+    //
+    // getMetadataBatch() drives curl_multi so a batch of 20 IDs returns
+    // in roughly the latency of the slowest single request.
+    if (!empty($needsFetch)) {
+        $batchResult = $archiveService->getMetadataBatch($needsFetch);
+        foreach ($needsFetch as $id) {
+            $meta = $batchResult[$id] ?? null;
+            if ($meta) {
+                unset($meta['raw_metadata'], $meta['_is_stale']);
+                $results[$id] = $meta;
             } else {
-                // Return a minimal stub so the client can still render
-                // something rather than a missing card
+                // Minimal stub so the client can still render a card.
                 $results[$id] = [
                     'identifier' => $id,
                     'title' => $id,
@@ -105,14 +106,6 @@ try {
                     '_unavailable' => true,
                 ];
             }
-        } catch (Throwable $e) {
-            error_log("[api/metadata-batch] Fetch failed for {$id}: " . $e->getMessage());
-            $results[$id] = [
-                'identifier' => $id,
-                'title' => $id,
-                'thumbnail' => "https://archive.org/services/img/{$id}",
-                '_unavailable' => true,
-            ];
         }
     }
 

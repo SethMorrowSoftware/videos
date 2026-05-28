@@ -47,6 +47,11 @@ class ArchiveVideoSearch {
     this.currentQuery = '';
     this.totalResults = 0;
     this.searchDebounceTimer = null;
+    // Monotonic token + AbortController so a slow older search can't
+    // overwrite a newer rendered result, and timers/listeners stop work
+    // for stale requests.
+    this._searchToken = 0;
+    this._searchAbort = null;
 
     // Load site settings from admin panel
     this.siteSettings = this.loadSiteSettings();
@@ -107,11 +112,19 @@ class ArchiveVideoSearch {
     // Search runs immediately, in parallel with sections
     this.handleUrlParameters();
 
-    // Setup offline handler callbacks
+    // Setup offline handler callbacks. Debounce because some networks flap
+    // online/offline rapidly (VPN reconnect, captive portal handshake) and
+    // we don't want to fire a refetch storm. The OfflineHandler itself only
+    // flips state after a probe confirms reachability, so this is a second
+    // layer of guard.
+    this._onlineRefetchTimer = null;
     this.offlineHandler.onStatusChange((isOnline) => {
       if (isOnline && this.currentQuery) {
-        this.showMessage('Back online! Refreshing results...', 'success');
-        this.performSearch();
+        clearTimeout(this._onlineRefetchTimer);
+        this._onlineRefetchTimer = setTimeout(() => {
+          this.showMessage('Back online! Refreshing results...', 'success');
+          this.performSearch();
+        }, 750);
       }
     });
 
@@ -436,10 +449,14 @@ class ArchiveVideoSearch {
   // ========================================
 
   async performSearch() {
-    if (!this.offlineHandler.isOnline) {
-      this.uiFeedback.showError('You are offline. Please check your connection.');
-      return;
+    // Cancel any in-flight search so a slow/failed older request can't
+    // overwrite a newer successful one (race when user types quickly).
+    if (this._searchAbort) {
+      try { this._searchAbort.abort(); } catch {}
     }
+    this._searchAbort = new AbortController();
+    const mySignal = this._searchAbort.signal;
+    const myToken = ++this._searchToken;
 
     const term = this.searchInput?.value.trim() || '';
     this.currentQuery = term || '*';
@@ -465,8 +482,13 @@ class ArchiveVideoSearch {
         collection: this.collection?.value,
         sortBy: this.sortBy?.value,
         publicDomain: this.publicDomain?.checked,
-        collectionsOnly: this.collectionsOnly?.checked
+        collectionsOnly: this.collectionsOnly?.checked,
+        signal: mySignal,
       });
+
+      // Bail out silently if this search was superseded — a newer request
+      // is already on the wire (or has rendered) and owns the UI.
+      if (myToken !== this._searchToken) return;
 
       if (!data || !data.response) throw new Error('Invalid response from Archive.org');
 
@@ -484,11 +506,27 @@ class ArchiveVideoSearch {
       this.updatePageTitle();
 
     } catch (err) {
+      // Aborts are intentional — never surface as errors.
+      if (err && (err.name === 'AbortError' || mySignal.aborted)) return;
+      if (myToken !== this._searchToken) return;
+
       console.error('Search error:', err);
-      this.uiFeedback.showError(`Search failed: ${err.message}`);
+
+      // Distinguish "definitely offline" (probe-confirmed) from generic
+      // failure so the user gets a useful message instead of the same
+      // "you are offline" splash on every transient hiccup.
+      if (this.offlineHandler.isDefinitelyOffline?.()) {
+        this.uiFeedback.showError('You appear to be offline. Search will retry when you reconnect.');
+      } else if (err && err.name === 'TimeoutError') {
+        this.uiFeedback.showError('Search timed out. Archive.org may be slow right now — try again.');
+      } else {
+        this.uiFeedback.showError(`Search failed: ${err.message || 'Unknown error'}`);
+      }
       this.uiFeedback.showFallbackMessage();
     } finally {
-      this.uiFeedback.hideLoading();
+      if (myToken === this._searchToken) {
+        this.uiFeedback.hideLoading();
+      }
     }
   }
 
