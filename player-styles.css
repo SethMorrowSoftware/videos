@@ -1338,8 +1338,49 @@
 
   .player-controls-bar {
     opacity: 1;
-    pointer-events: auto;
     padding: 6px 12px;
+    /* Kill the full-width darkening gradient on mobile. The gradient was
+       painted permanently here (because :hover doesn't exist on touch),
+       which obscured the top ~50px of the video frame even on idle. Each
+       remaining pill carries its own backdrop below so they stay readable
+       on bright video content. */
+    background: transparent;
+    /* Important: do NOT set pointer-events: auto on the bar itself.
+       Children get pointer-events: auto from the base .controls-bar-left/right
+       rule, so buttons remain tappable; the (mostly empty) bar area stays
+       click-through so taps on it reach the native video controls instead
+       of being swallowed by an invisible overlay. */
+  }
+
+  /* Hide the playback-speed pill on mobile. Mobile browsers expose speed via
+     the native HTML5 video kebab menu, so the custom pill is redundant.
+     Combined with the transparent bar background above and the bar's
+     base pointer-events: none, this leaves single-episode / single-quality
+     videos (the common case) with no visible or interactive overlay at
+     all. Pill stays available on tablets and desktop. */
+  #speedSelector {
+    display: none;
+  }
+
+  /* Without the gradient backdrop above, the buttons need their own dark
+     chip so they don't disappear into bright video frames. */
+  .player-controls-bar .pctl-btn {
+    background: rgba(0, 0, 0, 0.6);
+    border-color: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .player-controls-bar .pctl-btn:hover {
+    background: rgba(0, 0, 0, 0.75);
+  }
+
+  .episode-indicator {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 8px;
+    padding: 4px 10px;
   }
 
   /* Description toggle: full row, taller tap target. */
