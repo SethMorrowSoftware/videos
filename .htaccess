@@ -70,13 +70,20 @@
     Require all denied
 </FilesMatch>
 
-# AFTER INSTALL: install.php is denied by default for safety. The installer
-# self-locks via .installed once an admin is created, but blocking access at
-# the web-server level prevents probing for misconfigurations. To re-run
-# the installer (e.g. wipe-and-reinstall), comment the block out temporarily.
-<FilesMatch "^install\.php$">
-    Require all denied
-</FilesMatch>
+# BEFORE INSTALL: install.php must be reachable so the setup wizard can
+# run. The wizard self-locks via the .installed file (and via the admin-
+# already-exists check in install.php) once you've created an admin, so
+# leaving install.php briefly reachable during setup is safe.
+#
+# AFTER INSTALL: uncomment the FilesMatch block below to block all web
+# access at the server level (defense-in-depth alongside the .installed
+# lock). The cleanest move is to just delete install.php from the server
+# once setup is done -- the deny block is a fallback if you'd rather keep
+# the file around for future re-installs.
+#
+# <FilesMatch "^install\.php$">
+#     Require all denied
+# </FilesMatch>
 
 # diagnose.php exposes infrastructure info; keep it admin-only and prefer
 # to delete the file once you've confirmed everything works.
@@ -127,7 +134,19 @@ RedirectMatch 404 (^|/)(electron|node_modules|logs)(/|$)
     ExpiresByType application/manifest+json "access plus 1 week"
 </IfModule>
 
-# Friendly error pages
+# Friendly error pages.
+#
+# ErrorDocument paths are resolved from the server's document root, NOT
+# from this .htaccess. For a root install at https://example.com/ the
+# defaults below are correct.
+#
+# Subdirectory installs (e.g. /films/) need to PREFIX these with the
+# subdirectory:
+#   ErrorDocument 404 /films/404.php
+#   ErrorDocument 403 /films/404.php
+#   ErrorDocument 500 /films/500.php
+# Otherwise Apache will look for /404.php at the document root and miss,
+# falling back to its default error page. (Functional but not branded.)
 ErrorDocument 404 /404.php
 ErrorDocument 403 /404.php
 ErrorDocument 500 /500.php
