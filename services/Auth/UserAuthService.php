@@ -75,23 +75,14 @@ class UserAuthService {
             return ['user' => null, 'errors' => $errors];
         }
 
-        // First account becomes an admin (bootstrap), everyone else is 'viewer'.
-        // Count BOTH the unified `users` table AND the legacy `admin_users`
-        // table so a half-migrated install (users empty, admin_users
-        // populated) doesn't accidentally promote a random first registrant.
-        $existing = (int)$this->db->fetchColumn(
-            "SELECT COUNT(*) FROM users WHERE is_guest = 0"
-        );
-        if ($existing === 0) {
-            try {
-                $existing += (int)$this->db->fetchColumn(
-                    "SELECT COUNT(*) FROM admin_users"
-                );
-            } catch (Throwable $e) {
-                // legacy table dropped -- fine, the unified count is authoritative.
-            }
-        }
-        $role = $existing === 0 ? 'admin' : 'viewer';
+        // Public web signups are ALWAYS low-privilege. The bootstrap admin is
+        // created exclusively by install.php (a direct INSERT with
+        // role='admin'), never here. The previous "first non-guest account
+        // becomes admin" logic ran a non-atomic COUNT-then-insert, which let
+        // the first stranger to reach /register.php on a freshly-migrated
+        // install (admin not yet created) seize admin — and two concurrent
+        // signups could both read 0 and both be created admin (TOCTOU).
+        $role = 'viewer';
 
         $userId = $this->repo->createAccount([
             'username' => $username,

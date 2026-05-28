@@ -119,6 +119,12 @@ class MailService {
      * their HTTP API (which also doesn't need Composer).
      */
     private function sendViaSmtp(string $to, string $subject, string $html, string $text): bool {
+        // Strip CR/LF from the recipient before it lands in `RCPT TO:<...>` and
+        // the `To:` header. The upstream FILTER_VALIDATE_EMAIL already rejects
+        // embedded newlines, but $to is the one field that wasn't getting the
+        // same defense-in-depth strip as $from/$subject — close that gap.
+        $to = $this->stripCrlf($to);
+
         $host = getenv('SMTP_HOST');
         $port = (int)getenv('SMTP_PORT');
         $username = getenv('SMTP_USERNAME') ?: '';
