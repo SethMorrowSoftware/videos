@@ -73,7 +73,9 @@ foreach ($schema as $key => $rule) {
 }
 $clean['updated'] = date('c');
 
-// Persist to database
+// Persist to database. The DB is the source of truth; JSON is only used
+// as a recovery file when the DB write fails (e.g., transient connection
+// drop or schema not yet migrated on a fresh install).
 $dbSaveSuccess = false;
 try {
     $dbSaveSuccess = $settingsService->updateSettings($clean);
@@ -81,14 +83,16 @@ try {
     error_log('[api/settings] DB save failed: ' . $e->getMessage());
 }
 
-// Best-effort JSON fallback for sites without DB. LOCK_EX prevents two
-// concurrent admin saves from producing a half-written file.
 $jsonPath = base_path('site-settings.json');
-@file_put_contents($jsonPath, json_encode($clean, JSON_PRETTY_PRINT), LOCK_EX);
-@chmod($jsonPath, 0644);
+if (!$dbSaveSuccess) {
+    // DB save failed — write JSON as a recovery file so the admin's edits
+    // aren't lost. LOCK_EX guards against concurrent admin saves.
+    @file_put_contents($jsonPath, json_encode($clean, JSON_PRETTY_PRINT), LOCK_EX);
+    @chmod($jsonPath, 0644);
 
-if (!$dbSaveSuccess && !file_exists($jsonPath)) {
-    $api->error('Failed to save settings', 500);
+    if (!file_exists($jsonPath)) {
+        $api->error('Failed to save settings', 500);
+    }
 }
 
 $api->ok([

@@ -159,7 +159,10 @@ if ($useDatabase && $settingsService && $is_logged_in) {
     }
 }
 
-if (empty($current_recommendations) && file_exists($recommendations_file)) {
+// JSON fallback only when the DB is unreachable. An empty list from a
+// healthy DB means the admin removed all picks; falling back to JSON
+// would resurrect deleted picks in the admin UI.
+if (!$useDatabase && file_exists($recommendations_file)) {
     $content = file_get_contents($recommendations_file);
     $data = json_decode($content, true);
     if ($data) {
@@ -200,7 +203,10 @@ if ($useDatabase && $settingsService && $is_logged_in) {
     }
 }
 
-if (file_exists($settings_file)) {
+// JSON fallback only when DB is unreachable. The previous unconditional
+// merge meant a stale site-settings.json would overwrite live DB values,
+// because JSON was loaded AFTER the DB read.
+if (!$useDatabase && file_exists($settings_file)) {
     $content = file_get_contents($settings_file);
     $data = json_decode($content, true);
     if ($data) {
@@ -220,7 +226,9 @@ if ($useDatabase && $settingsService && $is_logged_in) {
     }
 }
 
-if (empty($featured_sections) && file_exists($sections_file)) {
+// Same rule: JSON fallback only when DB is unreachable, never on an
+// empty-but-valid DB result.
+if (!$useDatabase && file_exists($sections_file)) {
     $content = file_get_contents($sections_file);
     $data = json_decode($content, true);
     if ($data && isset($data['sections'])) {

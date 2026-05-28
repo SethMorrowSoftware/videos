@@ -53,13 +53,16 @@ try {
     error_log('[api/recommendations] DB save failed: ' . $e->getMessage());
 }
 
-// JSON fallback -- LOCK_EX guards against concurrent admin saves.
 $jsonPath = base_path('recommendations.json');
-@file_put_contents($jsonPath, json_encode($recommendations, JSON_PRETTY_PRINT), LOCK_EX);
-@chmod($jsonPath, 0644);
+if (!$dbSaveSuccess) {
+    // DB save failed — write JSON as a recovery file. LOCK_EX guards
+    // against concurrent admin saves writing a half-formed file.
+    @file_put_contents($jsonPath, json_encode($recommendations, JSON_PRETTY_PRINT), LOCK_EX);
+    @chmod($jsonPath, 0644);
 
-if (!$dbSaveSuccess && !file_exists($jsonPath)) {
-    $api->error('Failed to save recommendations', 500);
+    if (!file_exists($jsonPath)) {
+        $api->error('Failed to save recommendations', 500);
+    }
 }
 
 $api->ok([

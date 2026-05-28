@@ -209,7 +209,11 @@ if ($useDatabase && isset($settingsService)) {
         error_log("Failed to load recommendations from database: " . $e->getMessage());
     }
 }
-if (!$useDatabase || empty($recommendations_config['videos'])) {
+// JSON fallback ONLY when the DB is unreachable. An empty DB result is a
+// valid state (admin removed all picks); falling back to JSON there would
+// resurrect stale picks the admin already deleted. Migration from a JSON
+// install is handled by install.php step 4, not at runtime.
+if (!$useDatabase) {
     $recommendations_file = __DIR__ . '/recommendations.json';
     if (file_exists($recommendations_file)) {
         $content = file_get_contents($recommendations_file);
@@ -230,7 +234,9 @@ if ($useDatabase && isset($settingsService)) {
         error_log("Failed to load featured sections from database: " . $e->getMessage());
     }
 }
-if (!$useDatabase || empty($featured_sections_config['sections'])) {
+// Same rule as recommendations above: only fall back to JSON if the DB
+// is unreachable, never on empty-but-valid DB data.
+if (!$useDatabase) {
     $featured_sections_file = __DIR__ . '/featured-sections.json';
     if (file_exists($featured_sections_file)) {
         $content = file_get_contents($featured_sections_file);
