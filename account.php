@@ -256,5 +256,6 @@ $verified = !empty($current['email_verified_at']);
       }
     });
   </script>
+  <?php include __DIR__ . '/partials/footer.php'; ?>
 </body>
 </html>
