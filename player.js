@@ -49,6 +49,15 @@ class VideoPlayer {
     // Tracks playlist indices that have failed to play in this session,
     // so cascading auto-skip never re-tries a known-bad item.
     this.failedPlaylistIndices = new Set();
+    // True once the CURRENT source has reached a playable state (canplay /
+    // playing). Reset on every (re)load. Drives two behaviours:
+    //   1. the mid-playback buffering spinner only appears after this is
+    //      true, so it never stacks on the browser's own first-frame
+    //      spinner (half of the "double spinner" bug);
+    //   2. the <video> error handler only auto-skips / falls back when a
+    //      source FAILED TO LOAD (never became playable). A transient error
+    //      while seeking an already-playing video must NOT skip the episode.
+    this._sourceCanPlay = false;
 
     this.initElements();
     this.setupEventListeners();
@@ -392,8 +401,14 @@ class VideoPlayer {
 
   _showBuffering() {
     if (!this.bufferingIndicator) return;
-    // Don't show a buffering spinner on top of the initial-load spinner.
+    // The big initial-load / switching loader owns the cinema — never stack
+    // the buffering spinner on top of it (this was the "double spinner" bug:
+    // both elements render the identical .loading-spinner markup).
     if (this.playerLoader && this.playerLoader.style.display !== 'none') return;
+    // Suppress until the current source is actually playable, so this
+    // mid-playback spinner never overlaps the browser's own spinner drawn
+    // on the <video> while it buffers the very first frames.
+    if (!this._sourceCanPlay) return;
     this.bufferingIndicator.classList.add('visible');
   }
   _hideBuffering() {
@@ -494,13 +509,13 @@ class VideoPlayer {
       case 'ArrowLeft':
         if (!video) return;
         e.preventDefault();
-        video.currentTime = Math.max(0, video.currentTime - 5);
+        this._seekBy(video, -5);
         this.ui.showShortcutIndicator('-5s');
         break;
       case 'ArrowRight':
         if (!video) return;
         e.preventDefault();
-        video.currentTime = Math.min(video.duration || 0, video.currentTime + 5);
+        this._seekBy(video, 5);
         this.ui.showShortcutIndicator('+5s');
         break;
       case 'ArrowUp':
@@ -518,13 +533,13 @@ class VideoPlayer {
       case 'j':
         if (!video) return;
         e.preventDefault();
-        video.currentTime = Math.max(0, video.currentTime - 10);
+        this._seekBy(video, -10);
         this.ui.showShortcutIndicator('-10s');
         break;
       case 'l':
         if (!video) return;
         e.preventDefault();
-        video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+        this._seekBy(video, 10);
         this.ui.showShortcutIndicator('+10s');
         break;
       case 'N':
@@ -564,6 +579,19 @@ class VideoPlayer {
         }
         break;
     }
+  }
+
+  /**
+   * Seek relative to the current position, in seconds (negative rewinds).
+   * Before metadata loads, `video.duration` is NaN — clamping to it would
+   * snap the video to 0, so an unknown duration is treated as "no upper
+   * bound" and the browser clamps to the seekable range itself.
+   */
+  _seekBy(video, deltaSeconds) {
+    if (!video) return;
+    const upper = Number.isFinite(video.duration) ? video.duration : Infinity;
+    const target = (video.currentTime || 0) + deltaSeconds;
+    video.currentTime = Math.max(0, Math.min(upper, target));
   }
 
   _bumpPlaybackRate(direction) {
@@ -677,6 +705,11 @@ class VideoPlayer {
 
       if (isMultiEpisode) {
         this.setupPlaylist(meta, deduplicatedFiles, startIndex);
+      } else {
+        // Single video — make sure no playlist from a previous load lingers
+        // in the service, or the failed-to-load auto-skip would try to
+        // "advance to the next episode" of an item we're no longer playing.
+        this.playlistService.clearPlaylist();
       }
 
       // Quality selector for non-playlist single videos
@@ -919,8 +952,8 @@ class VideoPlayer {
     // spinner is handled separately by showLoader/hideLoader.
     videoEl.addEventListener('waiting', () => this._showBuffering());
     videoEl.addEventListener('stalled', () => this._showBuffering());
-    videoEl.addEventListener('playing', () => this._hideBuffering());
-    videoEl.addEventListener('canplay', () => this._hideBuffering());
+    videoEl.addEventListener('playing', () => { this._sourceCanPlay = true; this._hideBuffering(); });
+    videoEl.addEventListener('canplay', () => { this._sourceCanPlay = true; this._hideBuffering(); });
     videoEl.addEventListener('pause', () => this._hideBuffering());
 
     // Reapply rate after any internal reset (some browsers reset rate on
@@ -971,25 +1004,49 @@ class VideoPlayer {
       try { localStorage.setItem('playerVolume', videoEl.volume); } catch (e) {}
     });
 
-    // Recover from unplayable files (404, codec mismatch, network errors).
-    // In playlist mode we mark the current track as bad and auto-skip to
-    // the next playable one. In single-video mode we fall back to the
-    // Archive.org iframe, which can handle codecs the native element
-    // can't.
+    // Recover from files that FAIL TO LOAD (404, codec mismatch, dead
+    // source). In playlist mode we mark the current track bad and auto-skip
+    // to the next playable one; in single-video mode we fall back to the
+    // Archive.org iframe, which handles codecs the native element can't.
+    //
+    // Critically, this must NOT fire on the routine error events that the
+    // media element emits while *seeking* an already-playing video, or while
+    // we swap <source> for the next track — otherwise scrubbing the timeline
+    // used to be misread as "this episode failed" and jump the user away.
     videoEl.addEventListener('error', () => {
-      const code = videoEl.error?.code;
-      const msg = videoEl.error?.message || '';
-      // Ignore the spurious empty error fired when we replace src during
-      // teardown — error code 4 (MEDIA_ERR_SRC_NOT_SUPPORTED) with an
-      // empty currentSrc fits that pattern.
-      if (!videoEl.currentSrc) return;
-      console.warn('[player] video element error', { code, msg, src: videoEl.currentSrc });
+      const mediaError = videoEl.error;
+      // No error object, or no current source (we cleared src mid-swap /
+      // teardown): nothing actionable.
+      if (!mediaError || !videoEl.currentSrc) return;
+
+      const code = mediaError.code;
+      const msg = mediaError.message || '';
+
+      // MEDIA_ERR_ABORTED (1) is fired when an in-flight fetch is deliberately
+      // cancelled — we swapped <source> for the next episode, or the browser
+      // aborted a range request because the user seeked. Neither is a
+      // playback failure, so never skip / fall back on it.
+      if (code === 1 /* MEDIA_ERR_ABORTED */) return;
+
+      // If the source already became playable, this is a mid-playback blip
+      // (most commonly a transient range-request hiccup while seeking to an
+      // un-buffered region), NOT a failure to load. Don't yank the viewer to
+      // another episode or the embed — log it and let the native element
+      // recover / let the user retry.
+      if (this._sourceCanPlay) {
+        console.warn('[player] transient media error during playback (ignored)', { code, msg });
+        this._hideBuffering();
+        return;
+      }
+
+      // The source never became playable → genuine "failed to load".
+      console.warn('[player] video failed to load', { code, msg, src: videoEl.currentSrc });
 
       const pl = this.playlistService.getPlaylist();
       if (pl && pl.videoFiles.length > 1) {
         const failedIdx = this.playlistService.getCurrentIndex();
         this.failedPlaylistIndices.add(failedIdx);
-        this.toast.show(`Episode ${failedIdx + 1} could not be played, skipping…`, 'error');
+        this.toast.show(`Episode ${failedIdx + 1} couldn't be played — skipping…`, 'error');
         const nextIdx = this.playlistService.findNextPlayable(this.failedPlaylistIndices);
         if (nextIdx !== -1) {
           this.playPlaylistItem(nextIdx);
@@ -1494,6 +1551,13 @@ class VideoPlayer {
   // ========================================
 
   showLoader() {
+    // A fresh load / switch: the new source isn't playable yet and the big
+    // loader is about to cover the cinema. Tear down the mid-playback
+    // buffering spinner so the two never render at once (double-spinner bug),
+    // and reset the playable flag so the buffering spinner stays suppressed
+    // until the new source actually starts.
+    this._sourceCanPlay = false;
+    this._hideBuffering();
     if (this.playerLoader) this.playerLoader.style.display = 'flex';
   }
 

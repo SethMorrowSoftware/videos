@@ -323,3 +323,40 @@ The frontend is, on inspection, **already mature and professionally built**. The
 > - **#6 `theme-color` light/dark — DONE in PR #66 (P5).**
 > - **#7 `offline.html` branding — still open** (left as a recommendation).
 
+---
+
+## Player runtime bugs (post-audit pass)
+
+The earlier passes concentrated on the PHP backend, security, and server-rendered
+UI. This pass audited the **client-side player runtime** (`player.js` +
+`src/js/player/*`, `src/js/services/VideoService.js`, `PlaylistService.js`) and
+found four playback-breaking bugs that the original audit did not cover. All are
+**fixed in this PR**; the player uses the native `<video controls>` element, so
+the seek/timeline is browser-driven and the fixes are all in the JS event wiring.
+
+### PR1. Double loading spinners on the player **[verified]**
+**Where:** `player.js` `showLoader()` / `_showBuffering()`; markup `player.php:343` (`#playerLoader`) and `:397` (`#bufferingIndicator`); CSS `player-styles.css:211` (loader, `z-index:5`, opaque) and `:2100` (buffering, `z-index:60`, transparent).
+Both elements render the **identical** `.loading-spinner > .spinner-ring` markup. `showLoader()` only toggled `#playerLoader`; it never cleared the buffering indicator. So switching episode/quality **while mid-buffer** (buffering spinner already `.visible`) stacked the opaque loader's spinner (z5) *and* the buffering spinner (z60) — two spinners at once. Separately, after the loader hid on initial load, the mid-playback buffering spinner could appear on top of the browser's own first-frame spinner drawn inside the `<video>`.
+**Fix:** A single `_sourceCanPlay` flag (reset in `showLoader()`, set on `canplay`/`playing`) makes the two spinners mutually exclusive: `showLoader()` now hides the buffering indicator, and `_showBuffering()` bails while the loader is up **or** before the source is playable (so it's truly "mid-playback only").
+
+### PR2. Seeking the timeline is misread as a playback failure **[verified]**
+**Where:** `player.js` `setupVideoListeners()` `<video>` `error` handler.
+The handler treated **every** media `error` event as fatal. Two routine, non-fatal cases slipped through: `MEDIA_ERR_ABORTED` (code 1), fired when the browser aborts an in-flight range request because the user **seeked**, or when we swap `<source>` for the next track; and transient range-request hiccups while scrubbing to an un-buffered region. The result was the reported bug — clicking/dragging the timeline would surface an error toast and either **auto-skip the episode** (playlist) or **swap to the Archive.org embed** (single video), yanking the viewer away mid-watch.
+**Fix:** The handler now (a) ignores `MEDIA_ERR_ABORTED`, and (b) only acts when the source **never became playable** (`!_sourceCanPlay`). An error *after* the video has played is logged and ignored (native element recovers / user retries); it no longer skips or falls back.
+
+### PR3. Playlists don't reliably continue past an item that fails to load **[verified]**
+**Where:** `player.js` `error` handler + `playPlaylistItem()`; `PlaylistService.findNextPlayable()`.
+Auto-skip groundwork existed (`failedPlaylistIndices`, `findNextPlayable`) but was bolted onto the over-aggressive error handler from PR2, so it both over-fired (on seeks) and was conceptually muddled. With PR2's `!_sourceCanPlay` gate, "**fails to load → advance to the next playable episode**" is now exactly the trigger requested: a 404/dead/undecodable source that never reaches a playable state marks the track bad and advances; already-failed indices are never retried, so the cascade terminates cleanly ("No more playable episodes" when exhausted). This also covers the **initial** page load — the playlist is configured synchronously before the async `error` fires.
+**Fix:** Gate the skip on genuine load failure (PR2) and clear any stale playlist on a single-video load so the skip can't fire against an item we're no longer playing (see PR4).
+
+### PR4. Stale playlist could drive the auto-skip on a later single-video load **[flagged]**
+**Where:** `player.js` `loadVideo()`.
+`playlistService.currentPlaylist` was only ever (re)initialized for multi-episode items, never cleared. If `loadVideo()` ran for a single video after a series had been set up on the same `VideoPlayer` instance, the failed-load handler would read the **previous** series' playlist and try to "advance an episode" of an item no longer on screen. Not reachable in today's flow (one item per page load; track changes use `replaceState`, not cross-item navigation), hence *flagged*, but cheap to harden.
+**Fix:** `loadVideo()` now calls `playlistService.clearPlaylist()` on the single-video branch.
+
+### Minor: relative-seek shortcuts snapped to 0 before metadata **[verified]**
+**Where:** `player.js` `handleKeyboard()` ArrowRight / `l` (and now `_seekBy`).
+`Math.min(video.duration || 0, …)` evaluated to `Math.min(0, …)` while `duration` was `NaN` (pre-metadata), so a forward-seek shortcut pressed early **jumped the video to the start**. Replaced the four seek cases with a `_seekBy(video, delta)` helper that treats an unknown duration as unbounded and lets the browser clamp to the seekable range.
+
+> **Verification:** `scripts/check-syntax.sh all` (83 PHP + 35 JS files) and `php tests/smoke.php` pass. The fixes are event-wiring/logic only — no markup or CSS change — and were reasoned through every load path (initial load, track change, quality switch, end-of-video Up Next, seek, and the iframe fallback). They could not be exercised against a live browser + archive.org in this environment, so a manual smoke on a real multi-episode item (seek mid-playback; force a 404 track) is the recommended final check.
+
