@@ -18,17 +18,70 @@
       background: #ff0000; color: #fff; font-weight: 500; cursor: pointer;
       font: inherit; }
     button:hover { background: #cc0000; }
+    button[disabled] { opacity: .6; cursor: progress; }
     .icon { font-size: 3rem; margin-bottom: 1rem; opacity: .8; }
+    .status { margin-top: 1.25rem; font-size: .85rem; color: #5a5a64; }
   </style>
 </head>
 <body>
   <main>
     <div class="card">
       <div class="icon" aria-hidden="true">📡</div>
-      <h1>You're offline.</h1>
-      <p>It looks like your device isn't connected to the internet right now. Pages you've already visited may still work — try going back to a previous page.</p>
-      <button type="button" onclick="window.location.reload()">Try again</button>
+      <h1>You&rsquo;re offline.</h1>
+      <p>It looks like your device isn&rsquo;t connected to the internet right now. Pages you&rsquo;ve already visited may still work &mdash; try going back to a previous page.</p>
+      <button id="retry" type="button">Try again</button>
+      <p class="status" id="status" hidden>Checking for connection&hellip;</p>
     </div>
   </main>
+  <script>
+    // Auto-recover. The SW serves this page when a fetch fails, but the
+    // actual cause is often transient (sleep/wake, captive portal, VPN
+    // reconnect). Probe every 5 seconds — and on the browser's `online`
+    // event — and reload as soon as we can reach the API.
+    (function () {
+      var retryBtn = document.getElementById('retry');
+      var status = document.getElementById('status');
+      var inflight = false;
+
+      function setBusy(busy, msg) {
+        inflight = busy;
+        retryBtn.disabled = busy;
+        if (msg) {
+          status.hidden = false;
+          status.textContent = msg;
+        } else {
+          status.hidden = true;
+        }
+      }
+
+      function probe() {
+        if (inflight) return;
+        setBusy(true, 'Checking for connection…');
+        var ctl = new AbortController();
+        var t = setTimeout(function () { ctl.abort(); }, 4000);
+        fetch('api/index.php', {
+          method: 'HEAD',
+          cache: 'no-store',
+          signal: ctl.signal,
+        }).then(function (res) {
+          clearTimeout(t);
+          if (res && (res.ok || res.status < 500)) {
+            setBusy(false, 'Back online — reloading…');
+            window.location.reload();
+            return;
+          }
+          setBusy(false);
+        }).catch(function () {
+          clearTimeout(t);
+          setBusy(false);
+        });
+      }
+
+      retryBtn.addEventListener('click', probe);
+      window.addEventListener('online', probe);
+      window.addEventListener('focus', probe);
+      setInterval(probe, 5000);
+    })();
+  </script>
 </body>
 </html>

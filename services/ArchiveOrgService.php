@@ -462,6 +462,117 @@ class ArchiveOrgService {
     }
 
     /**
+     * Fetch metadata for many archive IDs in parallel and cache each.
+     *
+     * The serial version (calling getMetadata() in a foreach) was a major
+     * source of perceived "offline" errors: an uncached page with 10
+     * missing IDs would take up to 150 seconds wall-clock, and the
+     * service worker's 20s timeout would cancel the response and surface
+     * `TypeError: Failed to fetch` to the client — which the offline UI
+     * mis-classified as "you are offline".
+     *
+     * Now we issue all uncached metadata requests in parallel via
+     * curl_multi (when available) so a batch of 20 IDs returns in roughly
+     * the latency of the *slowest* single request rather than the sum.
+     *
+     * Falls back to the original serial path when cURL isn't installed.
+     *
+     * Returns: [archiveId => normalizedMetadataArray|null]
+     */
+    public function getMetadataBatch(array $archiveIds): array {
+        $results = [];
+        $toFetch = [];
+
+        // First, drain the local cache (cheap).
+        foreach ($archiveIds as $id) {
+            $cached = null;
+            try {
+                $cached = $this->metadataCache->get($id);
+            } catch (Exception $e) {
+                error_log("Metadata cache unavailable for {$id}: " . $e->getMessage());
+            }
+            if ($cached !== null) {
+                $results[$id] = $cached;
+            } else {
+                $toFetch[] = $id;
+            }
+        }
+
+        if (empty($toFetch)) {
+            return $results;
+        }
+
+        // Parallel fetch path (cURL multi). Falls back to serial getMetadata()
+        // if curl_multi isn't available (rare, but seen on stripped shared hosting).
+        if (function_exists('curl_multi_init')) {
+            $mh = curl_multi_init();
+            $handles = [];
+            foreach ($toFetch as $id) {
+                $ch = curl_init();
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => self::API_BASE_URL . "/metadata/{$id}",
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_TIMEOUT => self::API_TIMEOUT,
+                    CURLOPT_USERAGENT => self::USER_AGENT,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                curl_multi_add_handle($mh, $ch);
+                $handles[$id] = $ch;
+            }
+
+            // Drive the multi-handle until done.
+            $active = null;
+            do {
+                $status = curl_multi_exec($mh, $active);
+                if ($active) {
+                    curl_multi_select($mh, 0.5);
+                }
+            } while ($active && $status === CURLM_OK);
+
+            foreach ($handles as $id => $ch) {
+                $body = curl_multi_getcontent($ch);
+                $httpStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+
+                if ($body === false || $httpStatus >= 400 || empty($body)) {
+                    $results[$id] = null;
+                    continue;
+                }
+                $rawData = json_decode($body, true);
+                if (!$rawData || !isset($rawData['metadata'])) {
+                    $results[$id] = null;
+                    continue;
+                }
+
+                $metadata = $this->normalizeMetadata($id, $rawData);
+                try {
+                    $this->metadataCache->set($id, $metadata, $this->storeRawMetadata ? $rawData : null);
+                } catch (Exception $e) {
+                    // Cache write failure is non-fatal.
+                    error_log("Failed to cache metadata for {$id}: " . $e->getMessage());
+                }
+
+                if ($this->proactiveThumbnailCaching) {
+                    $this->queueThumbnailCaching($id);
+                }
+
+                $results[$id] = $metadata;
+            }
+            curl_multi_close($mh);
+        } else {
+            // Fallback: serial. Slow but functional.
+            foreach ($toFetch as $id) {
+                $r = $this->getMetadata($id);
+                $results[$id] = (!empty($r['success']) && !empty($r['data'])) ? $r['data'] : null;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
      * Make HTTP GET request (tries cURL first, then file_get_contents)
      */
     private function httpGet(string $url): array {

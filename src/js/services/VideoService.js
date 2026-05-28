@@ -7,31 +7,32 @@
 import { CONFIG } from '../config.js';
 import { formatFileSize } from '../utils/helpers.js';
 
+// Same threshold as SearchService — tolerate a few transient SW timeouts
+// before giving up on the local cached API for the session.
+const LOCAL_API_FAIL_THRESHOLD = 3;
+
 export class VideoService {
   constructor() {
     this.currentlyPlaying = null;
     this.videoControls = null;
-    this.useLocalApi = true; // Try local API first
+    this.useLocalApi = true;
+    this._localApiFailures = 0;
   }
 
   /**
    * Get video metadata from local caching API
    */
   async getMetadataViaLocalApi(id) {
-    // Relative path so subdirectory deployments (e.g. /films/ on cPanel) work.
     const resp = await fetch(`api/metadata.php?id=${encodeURIComponent(id)}`);
-    if (!resp.ok) throw new Error(`Failed to fetch metadata: ${resp.statusText}`);
+    if (!resp.ok) {
+      const e = new Error(`Failed to fetch metadata: ${resp.status}`);
+      e.status = resp.status;
+      throw e;
+    }
     const payload = await resp.json();
     if (payload.error || payload.success === false) {
       throw new Error(payload.error || 'Metadata API returned failure');
     }
-    // api/metadata.php wraps the normalized metadata under a `data` key
-    // ({ success, cached, stale, data }). Unwrap it so downstream callers
-    // (loadNativeVideo, player.js) see the metadata shape directly — the
-    // same contract as getMetadataDirectFromArchive. Without this, the
-    // player's file-list lookup finds nothing, loadNativeVideo throws,
-    // and the page silently falls back to the iframe embed, which has
-    // no playlist sidebar.
     return payload.data || payload;
   }
 
@@ -45,23 +46,35 @@ export class VideoService {
   }
 
   /**
-   * Get video metadata (with local cache fallback)
+   * Get video metadata (with local cache fallback). Tolerates a few
+   * transient failures before permanently falling back to direct
+   * archive.org — a single SW timeout used to brick the local-API
+   * path for the entire session.
    */
   async getVideoMetadata(id) {
-    // Try local caching API first
     if (this.useLocalApi) {
       try {
-        return await this.getMetadataViaLocalApi(id);
+        const data = await this.getMetadataViaLocalApi(id);
+        this._localApiFailures = 0;
+        return data;
       } catch (error) {
-        console.warn('Local metadata API failed, falling back to Archive.org:', error.message);
-        // Disable local API for this session if it's not available
-        if (error.message.includes('404') || error.message.includes('Failed to fetch')) {
+        if (error && error.status === 404) {
+          console.warn('Metadata API returned 404, disabling for session');
           this.useLocalApi = false;
+        } else {
+          this._localApiFailures++;
+          console.warn(
+            `Local metadata API failure ${this._localApiFailures}/${LOCAL_API_FAIL_THRESHOLD}:`,
+            error.message
+          );
+          if (this._localApiFailures >= LOCAL_API_FAIL_THRESHOLD) {
+            console.warn('Metadata API failure threshold reached, falling back to archive.org for the session');
+            this.useLocalApi = false;
+          }
         }
       }
     }
 
-    // Fallback to direct Archive.org API
     return this.getMetadataDirectFromArchive(id);
   }
 

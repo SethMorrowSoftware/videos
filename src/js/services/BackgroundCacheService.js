@@ -6,14 +6,21 @@
  * to reduce Archive.org API usage over time.
  */
 
+// Permanent-disable threshold — a single transient SW timeout used to
+// brick this service for the rest of the session, which then cascaded
+// into thumbnails not getting prefetched and the UI feeling broken.
+const PERMANENT_DISABLE_AFTER_404 = true; // 404 means the endpoint genuinely doesn't exist
+const TRANSIENT_FAILURE_THRESHOLD = 5;
+
 export class BackgroundCacheService {
   constructor() {
     this.pendingItems = new Set();
     this.batchSize = 20;
-    this.batchDelay = 2000; // 2 seconds
+    this.batchDelay = 2000;
     this.batchTimer = null;
     this.enabled = true;
     this.apiEndpoint = 'api/cache.php';
+    this._consecutiveFailures = 0;
   }
 
   /**
@@ -99,25 +106,45 @@ export class BackgroundCacheService {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
+        const e = new Error(`HTTP ${response.status}`);
+        e.status = response.status;
+        throw e;
       }
 
       const result = await response.json();
+      this._consecutiveFailures = 0;
 
       if (result.success) {
         console.debug(`Background cache: queued ${result.results.queued_metadata} metadata, ${result.results.queued_thumbnails} thumbnails, ${result.results.already_cached} already cached`);
       }
     } catch (error) {
-      console.warn('Background cache batch failed:', error.message);
-
-      // If API is not available, disable to avoid spamming
-      if (error.message.includes('404') || error.message.includes('Failed to fetch')) {
-        console.warn('Background cache API not available, disabling');
+      // 404 means the endpoint isn't on the server — disable for the
+      // session, retries are pointless.
+      if (PERMANENT_DISABLE_AFTER_404 && error.status === 404) {
+        console.warn('Background cache API not available (404), disabling for session');
         this.enabled = false;
-      } else {
-        // Re-queue items for retry
-        items.forEach(id => this.pendingItems.add(id));
+        return;
       }
+
+      // Everything else is treated as transient. A single SW timeout used
+      // to look identical to "API not available" because both produced
+      // "Failed to fetch" — that bricked background caching for the rest
+      // of the session. Now we count failures and only give up after a
+      // sustained pattern.
+      this._consecutiveFailures++;
+      console.warn(
+        `Background cache batch failed (${this._consecutiveFailures}/${TRANSIENT_FAILURE_THRESHOLD}):`,
+        error.message
+      );
+
+      if (this._consecutiveFailures >= TRANSIENT_FAILURE_THRESHOLD) {
+        console.warn('Background cache: too many consecutive failures, pausing for this session');
+        this.enabled = false;
+        return;
+      }
+
+      // Re-queue items for retry on next batch.
+      items.forEach(id => this.pendingItems.add(id));
     }
 
     // If more items pending, schedule another batch
