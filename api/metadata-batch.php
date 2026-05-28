@@ -109,15 +109,16 @@ try {
         }
     }
 
-    // Cache headers: when everything was already cached locally we can be
-    // very aggressive. Otherwise use a shorter window so the next page load
-    // picks up freshly cached items.
+    // Cache headers: server already caches metadata permanently against
+    // archive.org, so when everything is locally cached we can be very
+    // aggressive — repeat homepage loads should reuse the browser copy
+    // for a full day before even re-asking the server.
     if ($allCached) {
         header('X-Cache: HIT');
-        header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
+        header('Cache-Control: public, max-age=86400, stale-while-revalidate=604800');
     } else {
         header('X-Cache: MISS');
-        header('Cache-Control: public, max-age=300, stale-while-revalidate=3600');
+        header('Cache-Control: public, max-age=3600, stale-while-revalidate=86400');
     }
 
     $api->data($results);

@@ -45,12 +45,28 @@ try {
         'sort' => $sort,
     ]);
 
-    if ($result['cached'] ?? false) {
+    // HTTP cache headers — these govern how often the BROWSER and the
+    // service worker come back to the server, separate from how often
+    // the server comes back to archive.org (which is now ~once per query
+    // per 30-day stale window thanks to permanent caching).
+    //
+    // Fresh DB hit: serve aggressively. The data won't change soon and
+    //   any change archive.org makes will be picked up by background
+    //   refresh — the user benefits from instant repeat searches.
+    // Stale DB hit: short window so the browser comes back soon and
+    //   picks up the result of the background refresh that's already
+    //   in flight.
+    // Cache miss: short window — we'll have the result on the next
+    //   request and want the browser to come back for it.
+    if (!empty($result['stale'])) {
+        header('X-Cache: STALE');
+        header('Cache-Control: public, max-age=60, stale-while-revalidate=3600');
+    } elseif ($result['cached'] ?? false) {
         header('X-Cache: HIT');
-        header('Cache-Control: public, max-age=300');
+        header('Cache-Control: public, max-age=1800, stale-while-revalidate=86400');
     } else {
         header('X-Cache: MISS');
-        header('Cache-Control: public, max-age=60');
+        header('Cache-Control: public, max-age=300, stale-while-revalidate=3600');
     }
 
     echo json_encode($result);

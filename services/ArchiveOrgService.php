@@ -55,14 +55,30 @@ class ArchiveOrgService {
         }
     }
 
+    // How old (seconds) a permanent search row has to be before we'll do
+    // a background refresh against archive.org. Defaults to 30 days
+    // matching the `staleAfterDays` setting for metadata. The point of
+    // this is to bound archive.org traffic to ~1 request per query per
+    // month, no matter how many users hit the cached row.
+    const SEARCH_REFRESH_AFTER_SECONDS = 30 * 86400;
+
     /**
-     * Search the Archive.org collection
-     * Enhanced to queue caching of search result items
-     * Resilient: falls back to direct API if caching fails
+     * Search the Archive.org collection.
+     *
+     * Caching contract:
+     *  - First-time queries hit archive.org once and store the result.
+     *  - Repeat queries serve from cache and do NOT hit archive.org.
+     *  - Past the stale window, the cached row is returned immediately
+     *    (`stale=true` in the response) and exactly one background refresh
+     *    is fired via register_shutdown_function() — so archive.org sees
+     *    at most one refresh per query per stale window, regardless of
+     *    concurrent traffic.
+     *  - Permanent rows are never deleted by the cleanup cron.
      */
     public function search(array $params): array {
         $startTime = microtime(true);
         $cacheHit = false;
+        $isStale = false;
 
         // Normalize parameters
         $searchParams = $this->normalizeSearchParams($params);
@@ -78,12 +94,26 @@ class ArchiveOrgService {
 
         if ($cached !== null) {
             $cacheHit = true;
+            $isStale = !empty($cached['_is_stale']);
+            // Strip the internal flag before sending to client.
+            unset($cached['_is_stale']);
+
             $result = [
                 'success' => true,
                 'cached' => true,
-                'cache_age' => 0, // Could calculate from timestamp
+                'stale' => $isStale,
+                'cache_age' => 0,
                 'data' => $cached,
             ];
+
+            // Bounded background refresh. Defer the upstream call until after
+            // the response is sent so the user never waits on archive.org.
+            // Only one refresh fires per stale window per query — the SQL
+            // guard checks last_refreshed before doing the work, so even
+            // concurrent stale hits won't stampede the upstream.
+            if ($isStale) {
+                $this->scheduleBackgroundSearchRefresh($searchParams);
+            }
         } else {
             // Fetch from Archive.org
             $apiResult = $this->fetchFromArchive($searchParams);
@@ -138,6 +168,54 @@ class ArchiveOrgService {
         }
 
         return $result;
+    }
+
+    /**
+     * Defer an upstream archive.org refresh for a stale search row until
+     * AFTER the current response is sent.
+     *
+     * Guards against stampede: re-checks last_refreshed inside the shutdown
+     * handler so concurrent stale hits coalesce into a single upstream
+     * call. If another worker already refreshed the row in the meantime,
+     * we no-op.
+     */
+    private function scheduleBackgroundSearchRefresh(array $searchParams): void {
+        // Don't pile up multiple shutdown handlers for the same query in
+        // one PHP-FPM worker — once per request is enough.
+        static $scheduled = [];
+        $key = $this->searchCache->generateKey($searchParams);
+        if (isset($scheduled[$key])) return;
+        $scheduled[$key] = true;
+
+        register_shutdown_function(function () use ($searchParams, $key) {
+            try {
+                // Re-check: did anything else just refresh this row?
+                $row = $this->db->fetchOne(
+                    "SELECT last_refreshed FROM search_cache WHERE cache_key = ?",
+                    [$key]
+                );
+                if ($row && !empty($row['last_refreshed'])) {
+                    $age = time() - strtotime($row['last_refreshed']);
+                    if ($age < self::SEARCH_REFRESH_AFTER_SECONDS) {
+                        // Too recently refreshed by someone else; skip.
+                        return;
+                    }
+                }
+
+                $apiResult = $this->fetchFromArchive($searchParams);
+                if (!empty($apiResult['success'])) {
+                    $this->searchCache->set(
+                        $searchParams,
+                        $apiResult['data'],
+                        $apiResult['data']['response']['numFound'] ?? 0
+                    );
+                }
+            } catch (Throwable $e) {
+                // Background refresh failure is non-fatal — the cached
+                // row stays put and we'll try again next stale window.
+                error_log('[bg search refresh] ' . $e->getMessage());
+            }
+        });
     }
 
     /**
