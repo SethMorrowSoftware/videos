@@ -21,7 +21,7 @@ require_once __DIR__ . '/admin/controllers/AdminBootstrap.php';
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
     <meta name="robots" content="noindex,nofollow">
     <?php include __DIR__ . '/partials/head-common.php'; ?>
     <title>Admin Panel - <?= htmlspecialchars($site_settings['siteName'] ?? 'Archive Film Club') ?></title>

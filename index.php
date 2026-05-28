@@ -318,7 +318,10 @@ if (!empty($recommendations_config['enabled']) && !empty($recommendations_config
 <html lang="en" data-theme="<?= escapeAttr($initialTheme) ?>">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <!-- viewport-fit=cover lets env(safe-area-inset-*) return real notch
+       insets on iOS, so headers/sidebars dodge the camera cutout in PWA
+       standalone mode and landscape. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover" />
   <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title><?= escapeAttr($pageTitle) ?></title>
   <meta name="description" content="<?= escapeAttr($ogDescription) ?>" />

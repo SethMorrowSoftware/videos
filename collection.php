@@ -83,7 +83,7 @@ $ogDescription = $collection && $collection['description']
 <html lang="en" data-theme="<?= esc($initialTheme) ?>">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <?php include __DIR__ . '/partials/head-common.php'; ?>
   <title><?= esc($pageTitle) ?></title>
   <meta name="description" content="<?= esc($ogDescription) ?>">

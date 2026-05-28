@@ -39,7 +39,7 @@ if ($token !== '') {
 <html lang="en" data-theme="<?= htmlspecialchars($initialTheme, ENT_QUOTES) ?>">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow" />
   <meta name="referrer" content="no-referrer" />
   <?php include __DIR__ . '/partials/head-common.php'; ?>
