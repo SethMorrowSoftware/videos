@@ -1,0 +1,61 @@
+name: CI
+
+# Lightweight "safety net" for a no-build-step app: lint every PHP and JS
+# file and boot the app's bootstrap so future regressions are caught before
+# they reach shared hosting. There is no live database or build pipeline, so
+# these checks intentionally stay dependency-free (just php + node).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    name: PHP ${{ matrix.php }} — lint + smoke
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 7.4 = documented minimum (catches accidental 8.x-only syntax);
+        # 8.3 = a modern shared-hosting runtime.
+        php: ['7.4', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: none
+
+      - name: Lint all PHP files (php -l)
+        run: bash scripts/check-syntax.sh php
+
+      - name: Smoke test — boot bootstrap + link classes (no DB)
+        run: php tests/smoke.php
+
+  js:
+    name: JS syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # 22 = the version the ESM-aware `node --check` path was verified
+          # against (the --input-type=module stdin check is the linchpin of
+          # the JS safety net, so we run the version we tested).
+          node-version: '22'
+
+      - name: Check all JS files (ESM-aware node --check)
+        run: bash scripts/check-syntax.sh js
