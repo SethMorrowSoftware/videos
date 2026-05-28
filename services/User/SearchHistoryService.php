@@ -21,10 +21,15 @@ class SearchHistoryService {
     }
 
     public function recent(int $userId, int $limit = 10): array {
+        // GROUP BY query so a repeated search shows once, ordered by its most
+        // recent occurrence. `SELECT DISTINCT query, searched_at` did NOT dedupe
+        // — each row's searched_at differs, so every (query, searched_at) pair
+        // was already distinct and the same query appeared many times.
         return $this->db->fetchAll(
-            "SELECT DISTINCT query, searched_at
+            "SELECT query, MAX(searched_at) AS searched_at
              FROM search_history
              WHERE user_id = ?
+             GROUP BY query
              ORDER BY searched_at DESC
              LIMIT " . (int)$limit,
             [$userId]

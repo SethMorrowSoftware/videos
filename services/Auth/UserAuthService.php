@@ -161,6 +161,17 @@ class UserAuthService {
             return null;
         }
 
+        // Transparently upgrade the stored hash if PASSWORD_DEFAULT's algorithm
+        // or cost has moved on since it was created (e.g. a newer PHP). We have
+        // the plaintext here, so re-hash once on a successful login. Best-effort.
+        if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
+            try {
+                $this->repo->updatePassword((int)$user['id'], password_hash($password, PASSWORD_DEFAULT));
+            } catch (Throwable $e) {
+                error_log('[UserAuthService::login] password rehash failed: ' . $e->getMessage());
+            }
+        }
+
         // Regenerate session id to prevent fixation
         session_regenerate_id(true);
 

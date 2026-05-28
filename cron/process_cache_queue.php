@@ -13,8 +13,10 @@
  *   * / 5 * * * * php /path/to/videos/cron/process_cache_queue.php >> /path/to/logs/cache_queue.log 2>&1
  */
 
-// Prevent web access - CLI only for security
-if (php_sapi_name() !== 'cli') {
+// Prevent web access - CLI only for security. Some cron daemons invoke PHP
+// under a cgi-fcgi SAPI rather than 'cli'; defined('STDIN') is true for any
+// real command-line invocation, so accept that too (a web request never has it).
+if (php_sapi_name() !== 'cli' && !defined('STDIN')) {
     http_response_code(403);
     die('This script must be run from the command line');
 }

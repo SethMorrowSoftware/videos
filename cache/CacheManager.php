@@ -370,7 +370,8 @@ class CacheManager {
     public function getStaleMetadata(int $limit = 50): array {
         return $this->db->fetchAll(
             "SELECT archive_id, title, last_refreshed FROM video_metadata_cache
-             WHERE is_stale = 1 OR (is_permanent = 1 AND last_refreshed < DATE_SUB(NOW(), INTERVAL " . (int)$this->staleAfterDays . " DAY))
+             WHERE is_stale = 1
+                OR (is_permanent = 1 AND (last_refreshed IS NULL OR last_refreshed < DATE_SUB(NOW(), INTERVAL " . (int)$this->staleAfterDays . " DAY)))
              ORDER BY last_refreshed ASC
              LIMIT " . (int)$limit,
             []

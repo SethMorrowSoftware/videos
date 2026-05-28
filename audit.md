@@ -246,6 +246,8 @@ Deleting a user cascades to their comments, and because replies cascade on `pare
 
 ## LOW
 
+> **Status — addressed in PR #67 (P6):** L2, L3, L4, L5, L7, L8, L9, L10, L11 are **FIXED**. **L1** (transaction nesting → SAVEPOINTs + `inTransaction()`-guarded rollback) is **deferred** — it changes core transaction semantics for every caller and can't be exercised without a live DB. **L6** is left as-is (**latent**: thumbnail retention defaults to `0`, so the unbounded delete path doesn't run).
+
 - **L1. `Database::transaction()` has no nesting guard [flagged]** — `db/Database.php:215-225`. Nested `beginTransaction()` throws; `rollback()` isn't guarded by `inTransaction()`. Use depth tracking + SAVEPOINTs and guard rollback.
 - **L2. `Database::upsert()` returns unreliable `lastInsertId()` on the UPDATE branch [flagged]** — `db/Database.php:166-189`. Returns 0 for existing-row updates; document or `SELECT` the id.
 - **L3. No `password_needs_rehash` on login [flagged]** — `services/Auth/UserAuthService.php:149-185`. Old-cost hashes never upgrade.
