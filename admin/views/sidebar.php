@@ -63,6 +63,16 @@
                         Display Options
                     </button>
                 </div>
+
+                <?php if (!empty($canMaintain)): ?>
+                <div class="nav-section">
+                    <div class="nav-section-title">System</div>
+                    <button class="nav-item" data-panel="maintenance">
+                        <span class="nav-item-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+                        Maintenance
+                    </button>
+                </div>
+                <?php endif; ?>
             </nav>
 
             <div class="sidebar-footer">

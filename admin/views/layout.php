@@ -63,6 +63,13 @@
                 <div class="panel" id="panel-comments-mod">
                     <?php include __DIR__ . '/panels/comments-mod.php'; ?>
                 </div>
+
+                <?php if (!empty($canMaintain)): ?>
+                <!-- Maintenance / Database Panel (full admins only) -->
+                <div class="panel" id="panel-maintenance">
+                    <?php include __DIR__ . '/panels/maintenance.php'; ?>
+                </div>
+                <?php endif; ?>
             </div>
         </main>
     </div>

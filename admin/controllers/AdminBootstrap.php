@@ -150,6 +150,12 @@ if ($useDatabase && $authService) {
     $is_logged_in = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
 }
 
+// Database-maintenance ("System") panel is restricted to FULL admins on a
+// live DB. Editors (curation role) and the JSON-fallback break-glass login
+// (which has no database to maintain) never see it. The API enforces the
+// same rule server-side — this flag only governs the UI.
+$canMaintain = $useDatabase && $is_logged_in && (($admin_user['role'] ?? '') === 'admin');
+
 // ---- Data loading (only meaningful once logged in, but cheap to do always) ----
 
 $recommendations_file = __DIR__ . '/../../recommendations.json';

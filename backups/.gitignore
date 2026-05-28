@@ -1,0 +1,6 @@
+# Pre-restore safety snapshots land here at runtime. They contain the full
+# database — never commit them. Keep only the directory + its guard files.
+*
+!.gitignore
+!.htaccess
+!index.html

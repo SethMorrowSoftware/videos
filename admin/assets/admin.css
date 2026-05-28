@@ -2061,3 +2061,76 @@
                 align-items: flex-start;
             }
         }
+
+        /* =========================================================
+           Maintenance / Database panel
+           ========================================================= */
+        .maint-muted { color: var(--text-tertiary); font-size: 13px; margin: 8px 0 0; }
+        .maint-error { color: var(--danger); font-size: 13px; }
+        .maint-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .maint-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 14px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+        }
+        .maint-stat-num { font-size: 20px; font-weight: 700; color: var(--text-primary); word-break: break-word; }
+        .maint-stat-label { font-size: 12px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+        .maint-table-wrap { overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+        .maint-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .maint-table th, .maint-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border-subtle); }
+        .maint-table thead th { color: var(--text-tertiary); font-weight: 600; background: var(--bg-secondary); position: sticky; top: 0; }
+        .maint-table tbody tr:last-child td { border-bottom: none; }
+        .maint-table .maint-num { text-align: right; font-variant-numeric: tabular-nums; }
+        .maint-tag {
+            display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--text-tertiary); background: var(--bg-hover); padding: 1px 6px; border-radius: 999px; margin-left: 6px;
+        }
+        .maint-radio {
+            display: flex; gap: 10px; align-items: flex-start;
+            padding: 10px 0; font-size: 14px; color: var(--text-secondary); cursor: pointer;
+        }
+        .maint-radio input { margin-top: 3px; }
+        .maint-radio code, .maint-confirm code, .toggle-description code {
+            background: var(--bg-tertiary); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; color: var(--text-secondary);
+        }
+        .maint-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+        .maint-task {
+            display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            padding: 14px 0; border-bottom: 1px solid var(--border-subtle);
+        }
+        .maint-task:last-of-type { border-bottom: none; }
+        .maint-task-info { flex: 1; min-width: 0; }
+        .maint-result {
+            margin-top: 14px; padding: 10px 14px; border-radius: var(--radius-md); font-size: 13px; line-height: 1.5;
+        }
+        .maint-result-ok { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
+        .maint-result-error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+        .maint-danger { border-color: var(--danger); }
+        .maint-danger .card-title { color: var(--danger); }
+        .maint-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+        .maint-confirm label { font-size: 13px; color: var(--text-secondary); }
+        .maint-input {
+            flex: 1; min-width: 200px; padding: 9px 12px;
+            background: var(--bg-tertiary); border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); color: var(--text-primary); font-size: 14px;
+        }
+        .maint-input:focus { outline: none; border-color: var(--accent); }
+        .maint-restore-fields { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+        .maint-restore-fields input[type="file"] { padding: 8px 12px; cursor: pointer; }
+        .maint-restore-skip { padding: 0; }
+        .maint-result code {
+            background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 4px; font-size: 0.9em;
+        }
+        @media (max-width: 640px) {
+            .maint-task { flex-direction: column; align-items: flex-start; }
+            .maint-confirm { flex-direction: column; align-items: stretch; }
+        }

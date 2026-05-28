@@ -1,0 +1,7 @@
+# Server-side database backups written by the admin Maintenance panel.
+# These contain the full database — never serve them over HTTP.
+Require all denied
+<IfModule !mod_authz_core.c>
+  Order deny,allow
+  Deny from all
+</IfModule>

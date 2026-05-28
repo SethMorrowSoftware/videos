@@ -108,6 +108,37 @@ if ($loaded === 0) {
 }
 
 // ---------------------------------------------------------------------------
+// 4) MaintenanceService::splitSqlStatements — the quote/comment-aware SQL
+//    splitter that restore relies on. Static + pure, so it runs with no DB.
+//    A backup's data is full of semicolons inside string literals; splitting
+//    on those would corrupt every restore, so this is the piece worth testing.
+// ---------------------------------------------------------------------------
+if (class_exists('MaintenanceService') && method_exists('MaintenanceService', 'splitSqlStatements')) {
+    $cases = [
+        ["SELECT 1;\nSELECT 2;", 2, 'two simple statements'],
+        ["INSERT INTO t VALUES ('a;b'),('c');\nSELECT 9;", 2, 'semicolon inside a string literal'],
+        ["INSERT INTO t VALUES ('O\\'Brien; x');", 1, 'backslash-escaped quote + semicolon'],
+        ["INSERT INTO t VALUES ('it''s; fine');", 1, 'doubled-quote escape + semicolon'],
+        ["-- drop; everything\nSELECT 3;", 1, 'line comment containing a semicolon'],
+        ["CREATE TABLE `a;b` (id INT);", 1, 'semicolon inside a backtick identifier'],
+        ["", 0, 'empty input'],
+    ];
+    foreach ($cases as $case) {
+        list($sqlIn, $want, $label) = $case;
+        $got = count(MaintenanceService::splitSqlStatements($sqlIn));
+        if ($got !== $want) {
+            $failures[] = "splitSqlStatements [{$label}]: expected {$want} statement(s), got {$got}";
+        }
+    }
+    $stmts = MaintenanceService::splitSqlStatements("INSERT INTO t VALUES ('a;b');");
+    if (!isset($stmts[0]) || strpos($stmts[0], "'a;b'") === false) {
+        $failures[] = 'splitSqlStatements garbled a string literal containing a semicolon';
+    }
+} else {
+    $failures[] = 'MaintenanceService::splitSqlStatements not found (restore splitter missing)';
+}
+
+// ---------------------------------------------------------------------------
 // Report.
 // ---------------------------------------------------------------------------
 if ($failures) {

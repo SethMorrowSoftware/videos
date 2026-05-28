@@ -139,7 +139,8 @@
                 'site-settings': 'Site Settings',
                 'appearance': 'Appearance',
                 'display': 'Display Options',
-                'sections': 'Featured Sections'
+                'sections': 'Featured Sections',
+                'maintenance': 'Maintenance & Database'
             };
             // Notify other modules (admin-metrics.js) that a panel was opened
             // so they can lazy-load their data on first reveal.
