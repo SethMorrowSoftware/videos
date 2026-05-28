@@ -193,10 +193,10 @@ class CollectionService {
                 throw new InvalidArgumentException('Invalid name');
             }
             $updates['name'] = $name;
-            // Regenerate slug only if name actually changed
-            if ($name !== $existing['name']) {
-                $updates['slug'] = $this->generateSlug($userId, $name);
-            }
+            // Slug is intentionally NOT regenerated on rename. It's part of the
+            // shareable /c/{username}/{slug} URL, so re-minting it from the new
+            // name would 404 every link that's already been shared. The slug
+            // stays as minted at creation; only the display name changes.
         }
         if (array_key_exists('description', $fields)) {
             $updates['description'] = mb_substr(trim((string)$fields['description']), 0, 2000);

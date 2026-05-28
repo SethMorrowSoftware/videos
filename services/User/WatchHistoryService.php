@@ -33,7 +33,14 @@ class WatchHistoryService {
     }
 
     public function updateProgress(int $userId, string $archiveId, float $currentTime, float $duration): void {
+        // Clamp client-supplied values: a malicious or buggy client can send
+        // negative or over-duration figures that skew "continue watching" and
+        // engagement metrics. Reject negatives, and bound the derived percent
+        // to [0,100] (currentTime can exceed duration on a seek to the end).
+        $currentTime = max(0.0, $currentTime);
+        $duration = max(0.0, $duration);
         $percent = $duration > 0 ? ($currentTime / $duration) * 100 : 0;
+        $percent = max(0.0, min(100.0, $percent));
 
         $this->db->query(
             "INSERT INTO user_watch_history

@@ -370,7 +370,8 @@ class CacheManager {
     public function getStaleMetadata(int $limit = 50): array {
         return $this->db->fetchAll(
             "SELECT archive_id, title, last_refreshed FROM video_metadata_cache
-             WHERE is_stale = 1 OR (is_permanent = 1 AND last_refreshed < DATE_SUB(NOW(), INTERVAL " . (int)$this->staleAfterDays . " DAY))
+             WHERE is_stale = 1
+                OR (is_permanent = 1 AND (last_refreshed IS NULL OR last_refreshed < DATE_SUB(NOW(), INTERVAL " . (int)$this->staleAfterDays . " DAY)))
              ORDER BY last_refreshed ASC
              LIMIT " . (int)$limit,
             []
@@ -467,13 +468,92 @@ class CacheManager {
     }
 
     /**
-     * Mark cache queue item as processing
+     * Atomically claim a queued item for processing.
+     *
+     * Returns true only if THIS call won the row (flipped pending →
+     * processing). Two overlapping cron runs can SELECT the same pending rows
+     * via getPendingCacheItems(); the `AND status = 'pending'` guard plus
+     * rowCount() means exactly one claims each row, so the loser skips it
+     * instead of double-fetching from Archive.org. `processed_at` is stamped
+     * here so the stuck-item reaper can tell how long a row has been held.
      */
-    public function markQueueItemProcessing(int $id): void {
-        $this->db->query(
-            "UPDATE cache_queue SET status = 'processing', attempts = attempts + 1 WHERE id = ?",
+    public function markQueueItemProcessing(int $id): bool {
+        $stmt = $this->db->query(
+            "UPDATE cache_queue
+                SET status = 'processing', attempts = attempts + 1, processed_at = NOW()
+              WHERE id = ? AND status = 'pending'",
             [$id]
         );
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * Re-queue items left stuck in 'processing'.
+     *
+     * A cron run killed mid-item (shared hosts enforce a short
+     * max_execution_time, and the queue runs every few minutes) leaves its
+     * claimed rows in 'processing' forever — getPendingCacheItems() only
+     * selects 'pending', so they would never retry. This resets any row whose
+     * claim is older than $staleMinutes (or that predates the
+     * processed_at-on-claim change, hence NULL) back to 'pending', or to
+     * 'failed' once it has exhausted its attempts. Returns the rows reaped.
+     */
+    public function reapStuckQueueItems(int $staleMinutes = 15): int {
+        $minutes = max(1, $staleMinutes);
+        // INTERVAL can't take a bound ?; interpolate an (int) cast (C1 pattern).
+        $stmt = $this->db->query(
+            "UPDATE cache_queue
+                SET status = IF(attempts >= max_attempts, 'failed', 'pending'),
+                    error_message = IF(attempts >= max_attempts,
+                        CONCAT('Reaped after ', attempts, ' attempt(s) stuck in processing'),
+                        error_message)
+              WHERE status = 'processing'
+                AND (processed_at IS NULL
+                     OR processed_at < (NOW() - INTERVAL " . (int)$minutes . " MINUTE))"
+        );
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Acquire the advisory lock that serializes cache-queue processing.
+     *
+     * Uses MySQL GET_LOCK, which is scoped to this DB connection and released
+     * automatically if the process dies — so a crashed cron can't wedge the
+     * queue (unlike a stale lock file). Returns true if acquired (caller should
+     * run), false if another run already holds it (caller should exit). If
+     * advisory locks aren't available we proceed anyway: the atomic claim above
+     * still prevents double-processing.
+     */
+    public function acquireQueueLock(int $timeoutSeconds = 0): bool {
+        try {
+            $got = $this->db->fetchColumn(
+                "SELECT GET_LOCK(?, ?)",
+                [$this->queueLockName(), max(0, $timeoutSeconds)]
+            );
+            return (int)$got === 1;
+        } catch (Throwable $e) {
+            return true;
+        }
+    }
+
+    /** Release the cache-queue advisory lock (best-effort). */
+    public function releaseQueueLock(): void {
+        try {
+            $this->db->query("SELECT RELEASE_LOCK(?)", [$this->queueLockName()]);
+        } catch (Throwable $e) {
+            // Best-effort; the lock also auto-releases when the connection closes.
+        }
+    }
+
+    /**
+     * Name of the GET_LOCK used to serialize queue processing, scoped to this
+     * database. GET_LOCK names are server-wide (not per-database), so two
+     * installs sharing one MySQL server on shared hosting would otherwise
+     * serialize each other's crons. Hash keeps it within the 64-char limit.
+     */
+    private function queueLockName(): string {
+        $db = (string)($this->config['database'] ?? 'default');
+        return 'afc_cq_' . substr(md5($db), 0, 16);
     }
 
     /**

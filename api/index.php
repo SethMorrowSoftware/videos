@@ -6,23 +6,25 @@
  * Provides a unified entry point for all API requests
  */
 
+require_once __DIR__ . '/../bootstrap.php';
+
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
 
-// Enable CORS for same-origin requests
+// CORS: only reflect an Origin whose host matches THIS install's configured
+// host. safe_host() pins to APP_URL / SERVER_NAME and deliberately ignores the
+// client-controlled Host header — the previous allow-list trusted HTTP_HOST,
+// which an attacker can set on a host that doesn't pin it. localhost/127.0.0.1
+// are literal constants kept for local dev, not derived from the request.
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if (!empty($origin)) {
-    // Only allow same-origin or specific domains
-    $allowedOrigins = [
-        $_SERVER['HTTP_HOST'] ?? '',
-        'localhost',
-    ];
-
-    $parsedOrigin = parse_url($origin, PHP_URL_HOST);
-    if (in_array($parsedOrigin, $allowedOrigins)) {
+if ($origin !== '') {
+    $allowedHosts = [safe_host(), 'localhost', '127.0.0.1'];
+    $originHost = parse_url($origin, PHP_URL_HOST);
+    if ($originHost !== null && in_array($originHost, $allowedHosts, true)) {
         header("Access-Control-Allow-Origin: $origin");
+        header('Vary: Origin');
         header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type');
+        header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token');
     }
 }
 

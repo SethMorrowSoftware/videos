@@ -161,7 +161,13 @@ class Database {
     }
 
     /**
-     * Insert or update on duplicate key
+     * Insert or update on duplicate key.
+     *
+     * NOTE: the returned id is lastInsertId(), which is reliable only on the
+     * INSERT branch. On the UPDATE branch (row already existed) MySQL returns
+     * 0 unless the table uses LAST_INSERT_ID() tricks, so callers that need the
+     * existing row's id must SELECT it by the unique key rather than trust this
+     * return value.
      */
     public function upsert(string $table, array $data, array $updateColumns = []): int {
         $columns = array_keys($data);

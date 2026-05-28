@@ -249,7 +249,9 @@ class ThumbnailCache {
         $path = $this->getPath($archiveId);
 
         if ($path && file_exists($path)) {
-            unlink($path);
+            // @-suppress: a permission error on the file shouldn't emit a
+            // warning or block clearing the DB row below.
+            @unlink($path);
         }
 
         $db = Database::getInstance();

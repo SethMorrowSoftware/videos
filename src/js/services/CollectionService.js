@@ -17,14 +17,9 @@ class CollectionApiError extends Error {
   }
 }
 
-// Lazy CSRF token read from <meta name="csrf-token">.
-let _csrfToken = null;
-function getCsrfToken() {
-  if (_csrfToken !== null) return _csrfToken;
-  const meta = document.querySelector('meta[name="csrf-token"]');
-  _csrfToken = meta ? meta.getAttribute('content') || '' : '';
-  return _csrfToken;
-}
+// CSRF token from the shared single source of truth (utils/csrf.js), so this
+// client picks up a post-login token rotation without a full navigation.
+import { getCsrfToken } from '../utils/csrf.js';
 
 async function call(path, { method = 'GET', body = null } = {}) {
   const options = {

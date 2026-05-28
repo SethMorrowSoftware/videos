@@ -30,6 +30,13 @@ class UserAuthService {
     // spamming the victim's inbox or forcing expensive SMTP traffic.
     const RESET_TOKENS_PER_HOUR = 3;
 
+    // Per-IP cap on forgot-password requests (across ALL emails), so one client
+    // can't mail-bomb an inbox list or probe response timing. The per-user cap
+    // above doesn't bound this — only the per-account token rate. Recorded in
+    // the shared auth_attempts table behind a 'pwreset' marker.
+    const RESET_THROTTLE_WINDOW_MINUTES = 60;
+    const RESET_THROTTLE_MAX_PER_IP = 10;
+
     public function __construct(?UserRepository $repo = null, ?UserContext $context = null) {
         $this->repo = $repo ?: new UserRepository();
         $this->context = $context ?: new UserContext();
@@ -75,23 +82,14 @@ class UserAuthService {
             return ['user' => null, 'errors' => $errors];
         }
 
-        // First account becomes an admin (bootstrap), everyone else is 'viewer'.
-        // Count BOTH the unified `users` table AND the legacy `admin_users`
-        // table so a half-migrated install (users empty, admin_users
-        // populated) doesn't accidentally promote a random first registrant.
-        $existing = (int)$this->db->fetchColumn(
-            "SELECT COUNT(*) FROM users WHERE is_guest = 0"
-        );
-        if ($existing === 0) {
-            try {
-                $existing += (int)$this->db->fetchColumn(
-                    "SELECT COUNT(*) FROM admin_users"
-                );
-            } catch (Throwable $e) {
-                // legacy table dropped -- fine, the unified count is authoritative.
-            }
-        }
-        $role = $existing === 0 ? 'admin' : 'viewer';
+        // Public web signups are ALWAYS low-privilege. The bootstrap admin is
+        // created exclusively by install.php (a direct INSERT with
+        // role='admin'), never here. The previous "first non-guest account
+        // becomes admin" logic ran a non-atomic COUNT-then-insert, which let
+        // the first stranger to reach /register.php on a freshly-migrated
+        // install (admin not yet created) seize admin — and two concurrent
+        // signups could both read 0 and both be created admin (TOCTOU).
+        $role = 'viewer';
 
         $userId = $this->repo->createAccount([
             'username' => $username,
@@ -161,6 +159,17 @@ class UserAuthService {
         if (!password_verify($password, $user['password_hash'])) {
             $this->recordLoginAttempt($identifier, false);
             return null;
+        }
+
+        // Transparently upgrade the stored hash if PASSWORD_DEFAULT's algorithm
+        // or cost has moved on since it was created (e.g. a newer PHP). We have
+        // the plaintext here, so re-hash once on a successful login. Best-effort.
+        if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
+            try {
+                $this->repo->updatePassword((int)$user['id'], password_hash($password, PASSWORD_DEFAULT));
+            } catch (Throwable $e) {
+                error_log('[UserAuthService::login] password rehash failed: ' . $e->getMessage());
+            }
         }
 
         // Regenerate session id to prevent fixation
@@ -244,6 +253,39 @@ class UserAuthService {
         }
     }
 
+    /**
+     * Per-IP throttle for forgot-password. Counts 'pwreset'-marked rows in the
+     * shared auth_attempts table (recorded with success=1 so they never count
+     * toward the failed-login throttles). Fails open if the table is missing.
+     */
+    private function isResetThrottledByIp(): bool {
+        try {
+            $ipHash = hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            $count = (int)$this->db->fetchColumn(
+                "SELECT COUNT(*) FROM auth_attempts
+                 WHERE ip_hash = ? AND identifier = 'pwreset'
+                 AND created_at > DATE_SUB(NOW(), INTERVAL ? MINUTE)",
+                [$ipHash, self::RESET_THROTTLE_WINDOW_MINUTES]
+            );
+            return $count >= self::RESET_THROTTLE_MAX_PER_IP;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /** Record one forgot-password request for the per-IP throttle. Best-effort. */
+    private function recordResetAttempt(): void {
+        try {
+            $this->db->insert('auth_attempts', [
+                'ip_hash' => hash('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                'identifier' => 'pwreset',
+                'success' => 1,
+            ]);
+        } catch (Throwable $e) {
+            // auth_attempts missing (migration 005 not run) or DB unavailable.
+        }
+    }
+
     public function logout(): void {
         // Kill remember cookie + token
         if (!empty($_COOKIE[UserContext::REMEMBER_COOKIE])) {
@@ -302,6 +344,15 @@ class UserAuthService {
      * (so an attacker can't spam a victim's inbox).
      */
     public function startPasswordReset(string $email): ?array {
+        // Per-IP throttle (across all emails): treated exactly like "email
+        // unknown" (return null) so the caller's response is identical and the
+        // throttle itself isn't observable. Recorded before the lookup so the
+        // counter reflects every request from this client.
+        if ($this->isResetThrottledByIp()) {
+            return null;
+        }
+        $this->recordResetAttempt();
+
         $user = $this->repo->findByEmail($email);
         if (!$user) return null;
 

@@ -171,13 +171,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit;
                 }
             } catch (PDOException $e) {
-                // Give cPanel-flavored guidance for the most common error.
+                // Log the raw driver message (it carries the DB host/user/name)
+                // and show a generic message: install.php is reachable by anyone
+                // on a not-yet-installed instance, so the raw error must not leak
+                // those details to a passer-by. The cPanel guidance below is
+                // generic advice, not request-specific data.
                 $msg = $e->getMessage();
+                error_log('[install] DB connection failed: ' . $msg);
                 if (stripos($msg, 'access denied') !== false || stripos($msg, "unknown database") !== false) {
-                    $error = 'Could not connect: ' . htmlspecialchars($msg)
+                    $error = 'Could not connect to the database.'
                         . '<br><br><strong>On cPanel:</strong> Make sure you created the database AND the user under cPanel → MySQL Databases, then added the user to the database with ALL PRIVILEGES. Database names are usually prefixed with your cPanel username (e.g. <code>cpaneluser_filmclub</code>).';
                 } else {
-                    $error = 'Database connection failed: ' . htmlspecialchars($msg);
+                    $error = 'Database connection failed. Double-check the host, database name, username, and password, then try again.';
                 }
             }
         }

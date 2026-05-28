@@ -425,14 +425,24 @@ class ArchiveOrgService {
         // Build query
         $query = $params['q'];
 
-        // Add collection filter
+        // Add collection filter. Allow-list to the archive.org identifier
+        // charset so a caller can't inject Lucene operators (AND/OR, field:
+        // filters) and break out of the intended collection scope.
+        // http_build_query already URL-encodes the result, so this is not
+        // SSRF or DB injection — but it does stop query-semantics tampering.
         if (!empty($params['collection'])) {
-            $query .= " AND collection:{$params['collection']}";
+            $collection = preg_replace('/[^a-zA-Z0-9_.-]/', '', (string)$params['collection']);
+            if ($collection !== '') {
+                $query .= " AND collection:{$collection}";
+            }
         }
 
-        // Add media type filter
+        // Add media type filter (same allow-listing — a single mediatype token).
         if (!empty($params['mediatype'])) {
-            $query .= " AND mediatype:{$params['mediatype']}";
+            $mediatype = preg_replace('/[^a-zA-Z0-9_.-]/', '', (string)$params['mediatype']);
+            if ($mediatype !== '') {
+                $query .= " AND mediatype:{$mediatype}";
+            }
         }
 
         // Build API URL
@@ -452,9 +462,18 @@ class ArchiveOrgService {
             'creator' => 'creatorSorter asc',
             'relevance' => '',
         ];
-        $sort = $params['sort'] ?? 'downloads desc';
-        if (isset($sortMap[$sort])) {
-            $sort = $sortMap[$sort];
+        // Validate sort strictly against the known map. Accept either a known
+        // key ('downloads') or an already-mapped value ('downloads desc'); any
+        // other value falls back to the default rather than being passed
+        // through verbatim (which previously let a caller inject arbitrary
+        // sort syntax into the Archive.org query).
+        $requestedSort = (string)($params['sort'] ?? 'downloads');
+        if (isset($sortMap[$requestedSort])) {
+            $sort = $sortMap[$requestedSort];
+        } elseif (in_array($requestedSort, $sortMap, true)) {
+            $sort = $requestedSort;
+        } else {
+            $sort = $sortMap['downloads'];
         }
         if (!empty($sort)) {
             $apiParams['sort'] = $sort;

@@ -104,12 +104,16 @@ Registration is publicly open and independent of `install.php`. `register()` doe
 
 **Fix:** Create the admin only via `install.php` (always register web signups as `viewer`), or wrap the count+insert in a transaction with a row lock / one-shot `install_state` flag so the bootstrap admin can't be won by a public registrant or a race.
 
+**Status — FIXED in PR #62.** Chose the install-gate approach: `register()` now always assigns `role='viewer'` (the COUNT-then-insert auto-promotion is gone). The bootstrap admin is created solely by `install.php`'s direct `INSERT` (`role='admin'`), which is independent of `register()`, so the installer flow is unchanged. Closes both the install-gate hole and the TOCTOU race.
+
 ### H3. Admin "searches" metrics are silently always zero (wrong column) **[verified]**
 **Where:** `services/Admin/MetricsService.php:121-124` (`contentTotals` `searches_7d`) and `:181-184` (`dailySeries('searches')`).
 
 Both query `FROM search_history WHERE created_at > ...`, but `search_history` defines only `searched_at` (migration `001:201`). The queries throw `Unknown column 'created_at'`, which `intQuery`/`dailySeries` catch and convert to `0` / an empty series. The admin dashboard's 7-day search count and the searches chart are therefore **permanently zero** with no error shown — a silent data-correctness bug.
 
 **Fix:** Use `searched_at` in both queries.
+
+**Status — FIXED in PR #62.** Both queries (`contentTotals` `searches_7d` and `dailySeriesSql('searches')`) now select/filter on `searched_at`. The `created_at` references on `users`/`video_comments` (which do have that column) were left untouched.
 
 ### H4. Last-admin lockout via `set-role` **[verified]**
 **Where:** `api/admin/metrics.php:98-112`; `services/Admin/MetricsService.php:383-388`.
@@ -118,12 +122,16 @@ Both query `FROM search_history WHERE created_at > ...`, but `search_history` de
 
 **Fix:** Before demoting any `admin`, count remaining admins and refuse if the change would reach zero.
 
+**Status — FIXED in PR #62.** `MetricsService::setRole()` now counts remaining `admin`s and throws (API → 400) when the change would remove the last one. The guard lives in the service so it covers a second admin or a stale admin session, not just the API's self-demote block.
+
 ### H5. SMTP envelope/header `To:` not CRLF-sanitized (defense-in-depth gap) **[flagged]**
 **Where:** `services/Mail/MailService.php:188-191`.
 
 `$subject` and `$from` are passed through `stripCrlf()`, but `$to` is written into `RCPT TO:<$to>` and the `To:` header relying solely on the upstream `FILTER_VALIDATE_EMAIL`. That validator does reject embedded newlines, so this is not currently exploitable — but `$to` is the one field without the defense-in-depth strip the others get.
 
 **Fix:** Run `$to` (and every value placed into an SMTP command or header) through `stripCrlf()` too.
+
+**Status — FIXED in PR #62.** `$to` is now `stripCrlf()`'d at the top of `sendViaSmtp()`, before it reaches `RCPT TO:<$to>` and the `To:` header.
 
 ---
 
@@ -134,60 +142,84 @@ Both query `FROM search_history WHERE created_at > ...`, but `search_history` de
 The queue is claimed with a `SELECT ... WHERE status='pending'` followed by a separate `UPDATE ... status='processing'` — no `SELECT ... FOR UPDATE`/`GET_LOCK`/atomic claim. Two overlapping cron runs (likely on shared hosting with a short `max_execution_time` and a `*/5` schedule) process the same rows, defeating dedup. Worse, a run killed mid-item leaves rows stuck in `processing` forever — `getPendingCacheItems` only selects `pending`, so they never retry. (Largely moot until **C1** is fixed, since these queries currently throw.)
 **Fix:** Claim atomically (`UPDATE cache_queue SET status='processing', attempts=attempts+1 WHERE id=? AND status='pending'` and only proceed when `rowCount()===1`); add a reaper that resets stale `processing` rows. Add a `GET_LOCK`/flock overlap guard to `cron/process_cache_queue.php`.
 
+**Status — FIXED in PR #63.** `markQueueItemProcessing()` now claims atomically (proceeds only on `rowCount()===1`) and stamps `processed_at`; `processQueue()` skips a lost claim. `reapStuckQueueItems()` re-queues rows stuck in `processing` (or `NULL processed_at`) past a window, failing them once `attempts` is exhausted. The cron takes a per-database `GET_LOCK` (released in `finally`, auto-released on death). No schema change needed.
+
 ### M2. Migration 003 is not safely re-runnable for incremental upgrades **[verified]**
 **Where:** `db/migrations/003_user_accounts.sql:30-41`; runner `install.php:217-238`.
 Migration 003 is a single multi-clause `ALTER TABLE users` (8 columns + 3 keys). The installer splits on `;` (so it's one statement) and swallows "Duplicate column" errors. A fresh first run applies all clauses atomically (fine). But because MySQL aborts the whole ALTER on the first already-existing clause, **adding a new clause to this migration later and re-running will not apply it** — the ALTER dies on `ADD COLUMN username` and is swallowed. This contradicts the file's own "Safe to run … Re-runnable" comment.
 **Fix:** Split into one `ALTER TABLE users ADD COLUMN …;` per clause (the one-per-statement style migration 002 already uses).
+
+**Status — FIXED in PR #63.** The multi-clause ALTER is now 11 separate `ALTER TABLE users ADD …;` statements (each keeps its `AFTER` clause, so fresh-install column order is unchanged). Each clause now applies/skips independently on re-run.
 
 ### M3. "Permanent cache" depends on migration 002's `MODIFY` having succeeded **[verified]**
 **Where:** `db/migrations/001_initial_schema.sql:100,125` (`expires_at TIMESTAMP NOT NULL`) vs `002:42,100` (`MODIFY … TIMESTAMP NULL`) vs `cache/CacheManager.php:281-283` (writes `expires_at = NULL`).
 Permanent cache rows are written with `expires_at = NULL`. That only works if migration 002 made the column nullable. If 002 didn't fully apply, inserting `NULL` either errors (strict mode) or coerces to `0000-00-00`/`CURRENT_TIMESTAMP` (non-strict), making every "permanent" row instantly expired.
 **Fix:** Declare `expires_at TIMESTAMP NULL DEFAULT NULL` directly in migration 001, and verify 002's `MODIFY` post-install.
 
+**Status — FIXED in PR #63.** Both cache tables in migration 001 now declare `expires_at TIMESTAMP NULL DEFAULT NULL`, so fresh installs are correct even if 002's `MODIFY` didn't apply. `expires_at` isn't the first TIMESTAMP in either table, so there's no implicit `DEFAULT CURRENT_TIMESTAMP` interaction. Migration 002's `MODIFY` is left in place (now a harmless no-op on fresh installs).
+
 ### M4. Renaming a collection regenerates its slug and dead-links shared URLs **[flagged]**
 **Where:** `services/Collection/CollectionService.php:185-215`.
 `update()` regenerates `slug` from the new name on every rename, so any previously-shared `/c/{username}/{old-slug}` link 404s — defeating the purpose of shareable collections.
 **Fix:** Keep the existing slug on rename (only mint a new one on explicit request), or store slug history and 301 old → current.
+
+**Status — FIXED in PR #64.** `update()` no longer regenerates the slug on rename; it stays as minted at creation, so previously-shared `/c/{username}/{slug}` links keep resolving.
 
 ### M5. Lucene query injection / unvalidated `collection` into the archive.org query **[flagged]**
 **Where:** `services/ArchiveOrgService.php:424-461`; reached from `api/search.php:17-18`.
 User-controlled `q` and `collection` are concatenated raw into the Archive.org Lucene query (`AND collection:{...}`). `http_build_query` URL-encodes the result (so this is **not** SSRF and not DB injection), but a caller can still alter query semantics (inject `AND`/`OR`/field filters, break out of the intended collection scope). `sort` is also passed through unvalidated.
 **Fix:** Allow-list `collection` against `[a-zA-Z0-9_.-]`, validate `sort` against the known sort map, and quote user terms.
 
+**Status — FIXED in PR #65.** `collection` and `mediatype` are allow-listed to `[a-zA-Z0-9_.-]` before interpolation, and `sort` is resolved strictly through the known map (unknown → default, never verbatim). The free-text `q` is left as-is (quoting it would break legitimate multi-word search; it reaches archive.org URL-encoded, not the DB).
+
 ### M6. CORS allow-list is derived from the client-controlled `Host` header **[flagged]**
 **Where:** `api/index.php:13-27`.
 `$allowedOrigins` is built from `HTTP_HOST` and a matching `Origin` is reflected into `Access-Control-Allow-Origin`. On a host that doesn't pin `Host`, this can be coerced. Impact is limited (this is the info/router endpoint, no credentials echoed), but the pattern is unsafe and inconsistent with the hardened `api/.htaccess`.
 **Fix:** Drop the dynamic list; compare `parse_url($origin, PHP_URL_HOST)` against `safe_host()`/`APP_URL` only.
+
+**Status — FIXED in PR #65.** `api/index.php` now requires bootstrap and compares the Origin host against `safe_host()` (plus literal localhost/127.0.0.1 for dev); the client-controlled `HTTP_HOST` entry is gone. Adds `Vary: Origin`.
 
 ### M7. `forgot-password` has no per-IP throttle **[flagged]**
 **Where:** `api/auth/forgot-password.php`; `services/Auth/UserAuthService.php:304-342`.
 Reset tokens are capped at 3/hr **per account**, but nothing limits how many distinct emails one client submits. An attacker can loop the endpoint over an email list to generate outbound mail volume and probe response timing. (Login *is* throttled per-IP; the reset flow is not.)
 **Fix:** Apply the same per-IP `auth_attempts`-style throttle to `forgot-password`.
 
+**Status — FIXED in PR #65.** `startPasswordReset()` enforces a per-IP cap (10/hr) recorded in `auth_attempts` behind a `pwreset` marker (`success=1`, so it never counts toward the failed-login throttles). Over the cap returns null — identical to "email unknown".
+
 ### M8. Password-reset email enumeration via timing **[flagged]**
 **Where:** `services/Auth/UserAuthService.php:304-342`.
 The "email unknown" branch returns immediately, while the "email exists" branch does extra DB work + token insert + SMTP send. The response-time delta lets an attacker enumerate registered emails despite the identical user-facing message.
 **Fix:** Normalize work/timing across both branches (or enqueue mail asynchronously).
+
+**Status — FIXED in PR #65.** `forgot-password.php` now emits the identical generic response before any account-specific work and, where `fastcgi_finish_request` is available (PHP-FPM / LiteSpeed), closes the connection before doing the lookup + SMTP send — so response time no longer depends on whether the email is registered.
 
 ### M9. Legacy `AdminAuthService::authenticate` login path is unthrottled **[flagged]**
 **Where:** `services/AdminAuthService.php:24-57`.
 The new `UserAuthService::login` is rate-limited, but the legacy `admin_users` auth path has no throttling and no `auth_attempts` logging, giving an attacker an unthrottled brute-force channel where it's still wired.
 **Fix:** Route the legacy path through the same throttle, or deprecate/remove it post-migration.
 
+**Status — FIXED in PR #65.** `AdminAuthService::authenticate()` now applies a per-IP throttle (same window/cap and `auth_attempts` table as the unified login), throwing when tripped; `AdminBootstrap` catches it and shows the friendly "too many attempts" message.
+
 ### M10. Service worker token / post-login CSRF staleness **[verified]**
 **Where:** `src/js/services/ApiService.js:12`, `src/js/services/CollectionService.js:21`, `src/js/services/AuthService.js:180`; server rotates token at `UserAuthService.php:173`.
 `login()` rotates `$_SESSION['csrf_token']` server-side, but the client's `<meta name="csrf-token">` and the per-module cached `_csrfToken` are not refreshed without a full navigation. A write performed after login *without* navigating would send the stale token and 403. Currently masked because the auth pages navigate (redirect) after login.
 **Fix:** Centralize one token cache and invalidate it on auth-state change, or always re-read the meta tag for state-changing requests.
+
+**Status — FIXED in PR #65.** Added a single CSRF token source (`src/js/utils/csrf.js`) used by ApiService/CollectionService/AuthService. `login`/`register`/`logout` now return the rotated server token and the client adopts it (updating both the shared cache and the `<meta>` tag), so a state-changing request after a no-navigation auth change no longer 403s.
 
 ### M11. `progress_percent` is not clamped **[flagged]**
 **Where:** `services/User/WatchHistoryService.php:35-48`.
 `$percent = ($currentTime / $duration) * 100` with no `[0,100]` clamp and no rejection of negative/over-duration inputs. A client can store >100% (or negative), skewing "continue watching" UI and engagement metrics.
 **Fix:** `max(0, min(100, $percent))` and reject negative `currentTime`/`duration`.
 
+**Status — FIXED in PR #64.** `updateProgress()` clamps `currentTime`/`duration` to ≥0 and bounds the derived `progress_percent` to `[0,100]`.
+
 ### M12. Admin moderation `delete` doesn't decrement parent `reply_count` **[flagged]**
 **Where:** `services/Comments/CommentService.php:365-367` vs self-service `delete()` at `:184-189`.
 Self-service `delete()` decrements the parent's `reply_count`; the admin `moderate(…, 'delete')` path soft-deletes without decrementing it. The displayed reply count then overstates visible replies and "show more replies" can over-report.
 **Fix:** Decrement the parent `reply_count` in the moderation delete branch too.
+
+**Status — FIXED in PR #64.** `moderate(…, 'delete')` now decrements the parent's `reply_count` when removing a reply, matching self-service `delete()`, and guards on the prior status so a repeat delete can't double-decrement.
 
 ### M13. `ON DELETE CASCADE` on `video_comments.user_id` destroys whole threads **[flagged]**
 **Where:** `db/migrations/006_comments.sql:33-34`.
@@ -201,14 +233,20 @@ Deleting a user cascades to their comments, and because replies cascade on `pare
 `express.static(APP_ROOT)` serves the whole project root. PHP isn't executed, but the **raw source** of `db/config.php`, `bootstrap.php`, `.env`, and `.git/` is served as plain text — any page in the Electron window could `fetch('/.env')` and read DB credentials. (Secondary: Electron is optional and not part of the cPanel deployment.)
 **Fix:** Serve only an explicit static subtree, or denylist `db/`, `.env`, `.git`, `*.php`.
 
+**Status — FIXED in PR #65.** A denylist middleware ahead of `express.static` blocks `.env`/`.git`/`.htaccess`, `*.php`/`*.sql`/`*.sh`/`*.log`, and the `db/`+`electron/` source dirs (directory patterns anchored to the root so the frontend's `src/js/services` modules still load).
+
 ### M15. `urlManager.parseUrlState` double-decodes the search param **[verified]**
 **Where:** `src/js/utils/urlManager.js:57`.
 `decodeURIComponent(params.get('search'))` — `URLSearchParams.get()` already returns a decoded value, so this decodes twice. A search containing a literal `%` throws `URIError`; `+`/`%`-sequences corrupt. The decoded value is then written into the search input.
 **Fix:** Use `params.get('search')` directly; drop the extra `decodeURIComponent`.
 
+**Status — FIXED in PR #64.** `parseUrlState()` uses the already-decoded `params.get('search')` value directly (`|| null` preserves the absent/empty → null contract), so a `%` in the query no longer throws `URIError`.
+
 ---
 
 ## LOW
+
+> **Status — addressed in PR #67 (P6):** L2, L3, L4, L5, L7, L8, L9, L10, L11 are **FIXED**. **L1** (transaction nesting → SAVEPOINTs + `inTransaction()`-guarded rollback) is **deferred** — it changes core transaction semantics for every caller and can't be exercised without a live DB. **L6** is left as-is (**latent**: thumbnail retention defaults to `0`, so the unbounded delete path doesn't run).
 
 - **L1. `Database::transaction()` has no nesting guard [flagged]** — `db/Database.php:215-225`. Nested `beginTransaction()` throws; `rollback()` isn't guarded by `inTransaction()`. Use depth tracking + SAVEPOINTs and guard rollback.
 - **L2. `Database::upsert()` returns unreliable `lastInsertId()` on the UPDATE branch [flagged]** — `db/Database.php:166-189`. Returns 0 for existing-row updates; document or `SELECT` the id.
@@ -275,4 +313,13 @@ The frontend is, on inspection, **already mature and professionally built**. The
 7. **`offline.html` branding:** it hardcodes `#ff0000`/`#0a0a0b`. It's a static SW-served file so it can't read admin settings at runtime — consider templating it at install time (or neutralizing the accent) so a re-branded install stays consistent offline.
 
 > None of items 1–7 are blockers. Items 3 and 4 are the documented bugs that most directly affect the live experience; the rest are incremental polish.
+
+> **Status (remediation phases):**
+> - **#1 Persistent footer — DONE in PR #66 (P5):** shared `partials/footer.php` (archive.org attribution + Report / DMCA / Terms) on all five content pages; styles reuse the design tokens.
+> - **#2 App-load watchdog — DONE in PR #66 (P5):** inline non-module watchdog reveals a recovery message after 8s if `window.__afcReady` isn't set by `app.js`/`player.js`.
+> - **#3 Search double-decode (M15) — FIXED in PR #64 (P3).**
+> - **#4 Centralize CSRF (M10) — FIXED in PR #65 (P4).**
+> - **#5 Empty states — PARTIAL (P5):** confirmed friendly server-rendered empty states on `collections.php` and `collection.php`. Bookmarks/watch-history are count-driven (`account.php`) and list-rendered client-side; flagged to validate the empty branch in a running app rather than edit the tuned UI blind.
+> - **#6 `theme-color` light/dark — DONE in PR #66 (P5).**
+> - **#7 `offline.html` branding — still open** (left as a recommendation).
 

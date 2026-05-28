@@ -114,9 +114,11 @@ export function formatTime(seconds) {
  * Format file size to human readable
  */
 export function formatFileSize(bytes) {
-  if (!bytes) return '';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  if (!bytes || bytes < 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  // Clamp the index so sub-1-byte values (log < 0) and very large values
+  // (log beyond the last unit) don't index past the array into `undefined`.
+  const i = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))));
   return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + units[i];
 }
 

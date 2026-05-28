@@ -1520,6 +1520,8 @@ class VideoPlayer {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+  // Disarm the inline app-load watchdog (player.php): the module loaded.
+  window.__afcReady = true;
   try {
     window.videoPlayer = new VideoPlayer();
   } catch (error) {

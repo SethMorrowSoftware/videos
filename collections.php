@@ -172,5 +172,6 @@ function esc($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
       }
     });
   </script>
+  <?php include __DIR__ . '/partials/footer.php'; ?>
 </body>
 </html>

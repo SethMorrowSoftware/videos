@@ -49,4 +49,6 @@ if ($mergeGuest && $pendingGuestId && $pendingGuestId !== (int)$user['id']) {
     }
 }
 
-$api->ok(['user' => $user, 'message' => 'Logged in']);
+// Return the rotated CSRF token so SPA-style callers can adopt it without a
+// full page navigation (login() rotated $_SESSION['csrf_token']).
+$api->ok(['user' => $user, 'csrfToken' => csrf_token(), 'message' => 'Logged in']);

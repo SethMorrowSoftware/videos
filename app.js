@@ -897,6 +897,10 @@ class ArchiveVideoSearch {
 
 // Initialize the application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+  // Disarm the inline app-load watchdog (index.php): the module loaded and is
+  // about to initialize. Init errors below are handled by the catch; the
+  // watchdog only fires when this module never executes at all.
+  window.__afcReady = true;
   try {
     window.archiveSearch = new ArchiveVideoSearch();
     console.log('Application loaded successfully');
