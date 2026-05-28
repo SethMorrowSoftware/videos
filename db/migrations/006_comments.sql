@@ -18,7 +18,7 @@
 CREATE TABLE IF NOT EXISTS video_comments (
     id INT PRIMARY KEY AUTO_INCREMENT,
     archive_id VARCHAR(255) NOT NULL,
-    user_id INT NOT NULL,
+    user_id INT NULL,
     parent_id INT NULL,
     body TEXT NOT NULL,
     status ENUM('visible', 'hidden', 'deleted') NOT NULL DEFAULT 'visible',
@@ -30,7 +30,12 @@ CREATE TABLE IF NOT EXISTS video_comments (
     INDEX idx_archive_recent (archive_id, status, created_at),
     INDEX idx_parent (parent_id, status, created_at),
     INDEX idx_user (user_id, created_at),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    -- SET NULL (not CASCADE): deleting a user must NOT delete their comments,
+    -- because the parent_id CASCADE below would then also wipe OTHER users'
+    -- replies under those threads. A deleted account's comments are kept and
+    -- rendered as "[deleted]". The FK is named so migration 007 can swap it
+    -- deterministically on existing installs.
+    CONSTRAINT fk_video_comments_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (parent_id) REFERENCES video_comments(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
