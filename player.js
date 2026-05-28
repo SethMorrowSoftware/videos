@@ -81,6 +81,7 @@ class VideoPlayer {
     this.bookmarkBtn = document.getElementById('bookmarkBtn');
     this.saveToCollectionBtn = document.getElementById('saveToCollectionBtn');
     this.downloadBtn = document.getElementById('downloadBtn');
+    this.reportBtn = document.getElementById('reportBtn');
     this.closeDownloads = document.getElementById('closeDownloads');
     this.upNextOverlay = document.getElementById('upNextOverlay');
     this.upNextThumb = document.getElementById('upNextThumb');
@@ -128,6 +129,9 @@ class VideoPlayer {
   setupEventListeners() {
     // Share
     if (this.shareBtn) this.shareBtn.addEventListener('click', () => this.shareVideo());
+
+    // Report (links out to archive.org — we host no content)
+    if (this.reportBtn) this.reportBtn.addEventListener('click', () => this.openReportDialog());
 
     // Bookmark
     if (this.bookmarkBtn) this.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
@@ -1367,6 +1371,116 @@ class VideoPlayer {
     };
     modal.querySelector('.share-modal-close').onclick = close;
     modal.onclick = (e) => { if (e.target === modal) close(); };
+    document.addEventListener('keydown', onKey);
+  }
+
+  // ========================================
+  // Report to Archive.org
+  // ========================================
+
+  /**
+   * Open a dialog that hands the user off to archive.org's report channels
+   * for the currently playing item. We host no content, so we link out
+   * rather than collect reports ourselves. Archive.org has no public
+   * pre-fillable report endpoint, so the best we can do is (1) hand them
+   * a copyable archive.org item URL and (2) offer a prefilled mailto.
+   */
+  openReportDialog() {
+    if (!this.videoId) return;
+    const itemUrl = `https://archive.org/details/${this.videoId}`;
+    const title = this.videoTitle?.textContent || this.videoId;
+    const subject = encodeURIComponent(`Report regarding archive.org item: ${this.videoId}`);
+    const body = encodeURIComponent(
+      `I would like to report the following item on archive.org:\n\n` +
+      `Title: ${title}\n` +
+      `Identifier: ${this.videoId}\n` +
+      `URL: ${itemUrl}\n\n` +
+      `Reason for report:\n[please describe the issue]\n\n` +
+      `(Reported via a third-party front-end; no content is hosted there.)`
+    );
+    const mailto = `mailto:info@archive.org?subject=${subject}&body=${body}`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'report-modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Report this video to Archive.org');
+    overlay.innerHTML = `
+      <div class="report-modal">
+        <h3>Report this video</h3>
+        <p class="report-modal-subtitle">
+          This site doesn't host any video files &mdash; everything streams from
+          <strong>archive.org</strong>. To report inappropriate, illegal, or
+          infringing content, please contact the Internet Archive directly using
+          one of the channels below.
+        </p>
+
+        <div class="report-modal-url-row">
+          <input type="text" class="report-modal-url" readonly aria-label="Archive.org item URL" />
+          <button type="button" class="report-modal-copy">Copy</button>
+        </div>
+
+        <div class="report-modal-actions">
+          <a class="report-modal-action" target="_blank" rel="noopener"
+             href="https://help.archive.org/help/problems-or-errors/">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span class="report-modal-action-text">
+              <span class="report-modal-action-title">Report a problem on Archive.org</span>
+              <span class="report-modal-action-sub">Opens the Internet Archive help center</span>
+            </span>
+          </a>
+          <a class="report-modal-action" target="_blank" rel="noopener"
+             href="https://help.archive.org/help/how-do-i-request-to-remove-something-from-archive-org/">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            <span class="report-modal-action-text">
+              <span class="report-modal-action-title">Request removal / DMCA</span>
+              <span class="report-modal-action-sub">For copyright or takedown requests</span>
+            </span>
+          </a>
+          <a class="report-modal-action" href="${mailto}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <span class="report-modal-action-text">
+              <span class="report-modal-action-title">Email info@archive.org</span>
+              <span class="report-modal-action-sub">Opens your mail client with the item details pre-filled</span>
+            </span>
+          </a>
+        </div>
+
+        <div class="report-modal-footer">
+          <button type="button" class="report-modal-close">Close</button>
+        </div>
+      </div>`;
+
+    const input = overlay.querySelector('.report-modal-url');
+    input.value = itemUrl;
+
+    document.body.appendChild(overlay);
+
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const close = () => {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+    };
+
+    const copyBtn = overlay.querySelector('.report-modal-copy');
+    const originalCopyText = copyBtn.textContent;
+    copyBtn.addEventListener('click', () => {
+      const showCopied = () => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = originalCopyText; }, 1500);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(itemUrl).then(showCopied).catch(() => {
+          input.focus(); input.select();
+        });
+      } else {
+        input.focus(); input.select();
+        try { document.execCommand('copy'); showCopied(); } catch (e) {}
+      }
+    });
+
+    overlay.querySelector('.report-modal-close').onclick = close;
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
     document.addEventListener('keydown', onKey);
   }
 
